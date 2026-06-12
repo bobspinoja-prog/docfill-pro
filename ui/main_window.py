@@ -1,7 +1,7 @@
 from pathlib import Path
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
 
 from services.docx_reader import DOCXReader
 from services.docx_writer import DOCXWriter
@@ -13,13 +13,26 @@ from ui.preview_panel import PreviewPanel
 class DocFillProApp(ctk.CTk):
     """Aplicativo principal DOCFILL PRO."""
 
+    BG = "#07130D"
+    SURFACE = "#0B1F16"
+    PANEL = "#10291D"
+    CARD = "#132F22"
+    BORDER = "#244B36"
+    GREEN = "#22C55E"
+    GREEN_HOVER = "#16A34A"
+    GREEN_NEON = "#39FF7A"
+    TEXT = "#F8FAFC"
+    MUTED = "#CBD5E1"
+    INPUT = "#07130D"
+    INPUT_BORDER = "#315A43"
+
     def __init__(self, initial_template: str | Path | None = None) -> None:
         super().__init__()
 
         self.title("DOCFILL PRO")
         self.geometry("1600x900")
         self.minsize(1300, 800)
-        self.configure(fg_color="#071A12")
+        self.configure(fg_color=self.BG)
 
         self.template_path: Path | None = None
         self.output_folder: Path | None = None
@@ -28,6 +41,12 @@ class DocFillProApp(ctk.CTk):
         self._preview_job: str | None = None
         self.mapping_manager = MappingManager()
         self.logo_image = None
+        self.footer_logo_image = None
+        self.mapping_window = None
+        self.analysis_view = None
+        self.mapping_view = None
+        self.custom_marker = None
+        self.custom_value = None
 
         self._build_ui()
         if initial_template:
@@ -37,109 +56,87 @@ class DocFillProApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.close_app)
 
     def _build_ui(self) -> None:
-        root = ctk.CTkFrame(self, fg_color="#071A12")
-        root.pack(fill="both", expand=True, padx=18, pady=18)
+        root = ctk.CTkFrame(self, fg_color=self.BG)
+        root.pack(fill="both", expand=True, padx=16, pady=12)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(1, weight=1)
 
-        header = ctk.CTkFrame(root, fg_color="#071A12")
-        header.pack(fill="x", pady=(0, 12))
+        self._build_header(root)
+        self._build_body(root)
+        self._build_footer(root)
 
-        title_frame = ctk.CTkFrame(header, fg_color="#071A12")
-        title_frame.pack(side="left", fill="x", expand=True)
+    def _build_header(self, master: ctk.CTkFrame) -> None:
+        header = ctk.CTkFrame(master, fg_color=self.BG, height=90)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        header.grid_columnconfigure(1, weight=1)
+        header.grid_propagate(False)
+
+        logo_frame = ctk.CTkFrame(header, width=62, height=62, fg_color="#15803D", corner_radius=31)
+        logo_frame.grid(row=0, column=0, rowspan=2, padx=(0, 16), pady=14)
+        logo_frame.grid_propagate(False)
 
         logo_path = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
-        logo_label = ctk.CTkLabel(title_frame, text="DOCFILL PRO", font=("Segoe UI", 28, "bold"), text_color="#F2FBF5")
         if logo_path.exists():
             try:
                 from PIL import Image
-                self.logo_image = ctk.CTkImage(light_image=Image.open(logo_path), size=(64, 64))
-                logo_label = ctk.CTkLabel(title_frame, image=self.logo_image, text="")
+
+                self.logo_image = ctk.CTkImage(Image.open(logo_path), size=(48, 48))
+                ctk.CTkLabel(logo_frame, image=self.logo_image, text="").place(relx=0.5, rely=0.5, anchor="center")
             except Exception:
-                logo_label = ctk.CTkLabel(title_frame, text="DOCFILL PRO", font=("Segoe UI", 28, "bold"), text_color="#F2FBF5")
-        logo_label.pack(anchor="w")
+                ctk.CTkLabel(logo_frame, text="DF", font=("Segoe UI", 18, "bold"), text_color=self.TEXT).place(relx=0.5, rely=0.5, anchor="center")
+        else:
+            ctk.CTkLabel(logo_frame, text="DF", font=("Segoe UI", 18, "bold"), text_color=self.TEXT).place(relx=0.5, rely=0.5, anchor="center")
 
-        ctk.CTkLabel(title_frame, text="DOCFILL PRO", font=("Segoe UI", 26, "bold"), text_color="#F2FBF5").pack(anchor="w", pady=(8, 0))
-        ctk.CTkLabel(title_frame, text="Documentos Word preenchidos com controle e preview em tempo real.", font=("Segoe UI", 13), text_color="#B7C9BC").pack(anchor="w", pady=(3, 0))
+        brand = ctk.CTkFrame(header, fg_color="transparent")
+        brand.grid(row=0, column=1, rowspan=2, sticky="w", pady=12)
 
-        status = ctk.CTkLabel(header, text="Status: pronto para carregar um template .docx", text_color="#B7C9BC", font=("Segoe UI", 12))
-        status.pack(side="right", anchor="e")
-        self.status_label = status
-
-        toolbar = ctk.CTkFrame(root, fg_color="#0B2418", corner_radius=8)
-        toolbar.pack(fill="x", pady=(0, 12))
-
+        brand_line = ctk.CTkFrame(brand, fg_color="transparent")
+        brand_line.pack(anchor="w")
         ctk.CTkLabel(
-            toolbar,
-            text="Arquivo Word",
-            font=("Segoe UI", 14, "bold"),
-            text_color="#F2FBF5",
-        ).pack(side="left", padx=(14, 10), pady=12)
+            brand_line,
+            text="DocFill Pro",
+            font=("Segoe UI", 29, "bold"),
+            text_color=self.TEXT,
+        ).pack(side="left")
+        ctk.CTkFrame(brand_line, width=1, height=32, fg_color=self.BORDER).pack(side="left", padx=22)
+        ctk.CTkLabel(
+            brand_line,
+            text="Preencha seus documentos com agilidade e segurança",
+            font=("Segoe UI", 13),
+            text_color=self.MUTED,
+        ).pack(side="left")
 
-        ctk.CTkButton(
-            toolbar,
-            text="Adicionar Word (.docx)",
-            fg_color="#22C55E",
-            hover_color="#16A34A",
-            text_color="#F2FBF5",
-            width=190,
-            command=self.select_template,
-        ).pack(side="left", padx=6, pady=10)
+        actions = ctk.CTkFrame(header, fg_color="transparent")
+        actions.grid(row=0, column=2, rowspan=2, sticky="e", pady=18)
+        for text, command in (
+            ("Tema", self.show_theme_info),
+            ("Ajustes", self.open_settings),
+            ("Sobre", self.show_about),
+        ):
+            ctk.CTkButton(
+                actions,
+                text=text,
+                width=86,
+                height=34,
+                fg_color="transparent",
+                hover_color=self.CARD,
+                border_width=0,
+                text_color=self.MUTED,
+                command=command,
+            ).pack(side="left", padx=4)
 
-        ctk.CTkButton(
-            toolbar,
-            text="Escolher Pasta",
-            fg_color="#15803D",
-            hover_color="#166534",
-            text_color="#F2FBF5",
-            width=150,
-            command=self.select_output,
-        ).pack(side="left", padx=6, pady=10)
+    def _build_body(self, master: ctk.CTkFrame) -> None:
+        body = ctk.CTkFrame(master, fg_color=self.BG)
+        body.grid(row=1, column=0, sticky="nsew")
+        body.grid_columnconfigure(0, weight=56, minsize=710)
+        body.grid_columnconfigure(1, weight=44, minsize=520)
+        body.grid_rowconfigure(0, weight=1)
 
-        ctk.CTkButton(
-            toolbar,
-            text="Gerar Documento",
-            fg_color="#22C55E",
-            hover_color="#16A34A",
-            text_color="#F2FBF5",
-            width=170,
-            command=self.generate_document,
-        ).pack(side="left", padx=6, pady=10)
-
-        toolbar_status = ctk.CTkFrame(toolbar, fg_color="transparent")
-        toolbar_status.pack(side="right", padx=14, pady=8)
-
-        self.toolbar_template_label = ctk.CTkLabel(
-            toolbar_status,
-            text="Word: nenhum arquivo",
-            font=("Segoe UI", 11),
-            text_color="#B7C9BC",
-            anchor="e",
-        )
-        self.toolbar_template_label.pack(anchor="e")
-
-        self.toolbar_output_label = ctk.CTkLabel(
-            toolbar_status,
-            text="Saída: escolher ao gerar",
-            font=("Segoe UI", 11),
-            text_color="#B7C9BC",
-            anchor="e",
-        )
-        self.toolbar_output_label.pack(anchor="e", pady=(2, 0))
-
-        self.tabview = ctk.CTkTabview(root, fg_color="#071A12", segmented_button_fg_color="#103522", segmented_button_selected_color="#22C55E", segmented_button_selected_hover_color="#16A34A")
-        self.tabview.add("Documento")
-        self.tabview.add("Mapeamento")
-        self.tabview.pack(fill="both", expand=True)
-
-        doc_tab = self.tabview.tab("Documento")
-        doc_tab.grid_columnconfigure(0, weight=3, minsize=720)
-        doc_tab.grid_columnconfigure(1, weight=2, minsize=460)
-        doc_tab.grid_rowconfigure(0, weight=1)
-
-        self.preview_panel = PreviewPanel(doc_tab)
-        self.preview_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=0)
+        self.preview_panel = PreviewPanel(body, on_refresh=self.update_preview)
+        self.preview_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
 
         self.form_panel = FormPanel(
-            doc_tab,
+            body,
             on_update=self.request_preview_update,
             callbacks={
                 "select_template": self.select_template,
@@ -148,16 +145,112 @@ class DocFillProApp(ctk.CTk):
                 "clear": self.clear_form,
             },
         )
-        self.form_panel.grid(row=0, column=1, sticky="nsew")
+        self.form_panel.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
 
-        self._build_mapping_tab()
+    def _build_footer(self, master: ctk.CTkFrame) -> None:
+        footer = ctk.CTkFrame(master, fg_color=self.BG, height=34)
+        footer.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        footer.grid_columnconfigure(1, weight=1)
+        footer.grid_propagate(False)
+
+        logo_path = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
+        try:
+            from PIL import Image
+
+            self.footer_logo_image = ctk.CTkImage(Image.open(logo_path), size=(20, 20))
+            ctk.CTkLabel(footer, image=self.footer_logo_image, text="").grid(row=0, column=0, padx=(0, 8), pady=6)
+        except Exception:
+            ctk.CTkLabel(footer, text="DF", text_color=self.GREEN_NEON, font=("Segoe UI", 11, "bold")).grid(row=0, column=0, padx=(0, 8))
+
+        ctk.CTkLabel(
+            footer,
+            text="DocFill Pro   v1.0.0",
+            text_color=self.TEXT,
+            font=("Segoe UI", 12),
+        ).grid(row=0, column=1, sticky="w")
+
+        self.status_label = ctk.CTkLabel(
+            footer,
+            text="Pronto",
+            text_color=self.GREEN_NEON,
+            font=("Segoe UI", 13),
+        )
+        self.status_label.grid(row=0, column=2, sticky="e", padx=(0, 4))
+
+    def open_settings(self) -> None:
+        if self.mapping_window is not None and self.mapping_window.winfo_exists():
+            self.mapping_window.deiconify()
+            self.mapping_window.lift()
+            self.refresh_mapping_view()
+            self.analyze_template_section()
+            return
+
+        window = ctk.CTkToplevel(self)
+        window.title("DOCFILL PRO - Ajustes e Mapeamento")
+        window.geometry("900x700")
+        window.minsize(760, 560)
+        window.configure(fg_color=self.BG)
+        window.protocol("WM_DELETE_WINDOW", window.withdraw)
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(1, weight=1)
+        self.mapping_window = window
+
+        ctk.CTkLabel(
+            window,
+            text="Mapeamento",
+            font=("Segoe UI", 22, "bold"),
+            text_color=self.GREEN_NEON,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(18, 4))
+
+        wrapper = ctk.CTkFrame(window, fg_color=self.SURFACE, corner_radius=14, border_width=1, border_color=self.BORDER)
+        wrapper.grid(row=1, column=0, sticky="nsew", padx=18, pady=18)
+        wrapper.grid_columnconfigure(0, weight=1)
+        wrapper.grid_rowconfigure(2, weight=1)
+
+        analysis_card = ctk.CTkFrame(wrapper, fg_color=self.PANEL, corner_radius=12, border_width=1, border_color=self.BORDER)
+        analysis_card.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 10))
+        analysis_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(analysis_card, text="Análise do Template", font=("Segoe UI", 14, "bold"), text_color=self.GREEN_NEON, anchor="w").grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        ctk.CTkButton(analysis_card, text="Analisar Template Atual", fg_color=self.GREEN, hover_color=self.GREEN_HOVER, command=self.analyze_template_section).grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 8))
+        self.analysis_view = ctk.CTkTextbox(analysis_card, fg_color=self.INPUT, text_color=self.TEXT, border_width=1, border_color=self.INPUT_BORDER, font=("Segoe UI", 12), height=150)
+        self.analysis_view.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 14))
+        self.analysis_view.configure(state="disabled")
+
+        form_card = ctk.CTkFrame(wrapper, fg_color=self.PANEL, corner_radius=12, border_width=1, border_color=self.BORDER)
+        form_card.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
+        form_card.grid_columnconfigure(0, weight=1)
+        form_card.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(form_card, text="Adicionar marcador", font=("Segoe UI", 14, "bold"), text_color=self.GREEN_NEON, anchor="w").grid(row=0, column=0, columnspan=2, sticky="ew", padx=14, pady=(12, 6))
+        self.custom_marker = ctk.CTkEntry(form_card, placeholder_text="Ex.: TELEFONE", fg_color=self.INPUT, border_color=self.INPUT_BORDER, text_color=self.TEXT)
+        self.custom_marker.grid(row=1, column=0, sticky="ew", padx=(14, 6), pady=(0, 12))
+        self.custom_value = ctk.CTkEntry(form_card, placeholder_text="Valor do marcador", fg_color=self.INPUT, border_color=self.INPUT_BORDER, text_color=self.TEXT)
+        self.custom_value.grid(row=1, column=1, sticky="ew", padx=(6, 14), pady=(0, 12))
+        ctk.CTkButton(form_card, text="Salvar Marcador", fg_color=self.GREEN, hover_color=self.GREEN_HOVER, command=self.save_mapping).grid(row=2, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 14))
+
+        list_card = ctk.CTkFrame(wrapper, fg_color=self.PANEL, corner_radius=12, border_width=1, border_color=self.BORDER)
+        list_card.grid(row=2, column=0, sticky="nsew", padx=14, pady=(0, 14))
+        list_card.grid_columnconfigure(0, weight=1)
+        list_card.grid_rowconfigure(1, weight=1)
+        ctk.CTkLabel(list_card, text="Marcadores cadastrados", font=("Segoe UI", 14, "bold"), text_color=self.GREEN_NEON, anchor="w").grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        self.mapping_view = ctk.CTkTextbox(list_card, fg_color=self.INPUT, text_color=self.TEXT, border_width=1, border_color=self.INPUT_BORDER, font=("Segoe UI", 12))
+        self.mapping_view.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
+        self.mapping_view.configure(state="disabled")
+
+        self.refresh_mapping_view()
+        self.analyze_template_section()
+
+    def show_theme_info(self) -> None:
+        messagebox.showinfo("Tema", "Tema verde premium ativo.")
+
+    def show_about(self) -> None:
+        messagebox.showinfo("Sobre", "DocFill Pro v1.0.0\nPreenchimento profissional de documentos Word.")
 
     def analyze_template_section(self) -> None:
+        if self.analysis_view is None:
+            return
         if not self.template_path:
-            self.analysis_view.configure(state="normal")
-            self.analysis_view.delete("1.0", "end")
-            self.analysis_view.insert("1.0", "Selecione um template .docx para iniciar a análise.")
-            self.analysis_view.configure(state="disabled")
+            self._set_textbox(self.analysis_view, "Selecione um template .docx para iniciar a análise.")
             return
 
         try:
@@ -172,75 +265,28 @@ class DocFillProApp(ctk.CTk):
                 lines.append(f"- Campos detectados no texto: {len(self.template_suggestions)}")
             lines.append("\nMarcadores detectados:")
             if analysis["placeholders"]:
-                lines.extend(f"  • {marker}" for marker in analysis["placeholders"])
+                lines.extend(f"  - {marker}" for marker in analysis["placeholders"])
             else:
-                lines.append("  • Nenhum marcador encontrado.")
+                lines.append("  - Nenhum marcador encontrado.")
 
             lines.append("\nÁreas identificadas:")
             if analysis["areas"]:
-                lines.extend(f"  • {area}" for area in analysis["areas"])
+                lines.extend(f"  - {area}" for area in analysis["areas"])
             else:
-                lines.append("  • Nenhuma área especial detectada.")
+                lines.append("  - Nenhuma área especial detectada.")
 
-            self.analysis_view.configure(state="normal")
-            self.analysis_view.delete("1.0", "end")
-            self.analysis_view.insert("1.0", "\n".join(lines))
-            self.analysis_view.configure(state="disabled")
-            self.status_label.configure(text="Status: análise concluída")
+            self._set_textbox(self.analysis_view, "\n".join(lines))
+            self.status_label.configure(text="Análise concluída")
         except Exception as exc:
-            self.analysis_view.configure(state="normal")
-            self.analysis_view.delete("1.0", "end")
-            self.analysis_view.insert("1.0", f"Não foi possível analisar o template:\n{exc}")
-            self.analysis_view.configure(state="disabled")
-            self.status_label.configure(text="Status: erro na análise do template")
-
-    def _build_mapping_tab(self) -> None:
-        mapping_tab = self.tabview.tab("Mapeamento")
-        mapping_tab.grid_columnconfigure(0, weight=1)
-        mapping_tab.grid_rowconfigure(0, weight=1)
-
-        wrapper = ctk.CTkFrame(mapping_tab, fg_color="#071A12")
-        wrapper.pack(fill="both", expand=True, padx=18, pady=18)
-
-        info_card = ctk.CTkFrame(wrapper, fg_color="#0B2418", corner_radius=8)
-        info_card.pack(fill="x", pady=(0, 12))
-        ctk.CTkLabel(info_card, text="Mapeamento", font=("Segoe UI", 18, "bold"), text_color="#F2FBF5", anchor="w").pack(anchor="w", padx=16, pady=(14, 4))
-        ctk.CTkLabel(info_card, text="Cadastre marcadores extra e analise como o template está organizado por áreas.", font=("Segoe UI", 12), text_color="#B7C9BC", anchor="w").pack(anchor="w", padx=16, pady=(0, 14))
-
-        analysis_card = ctk.CTkFrame(wrapper, fg_color="#0B2418", corner_radius=8)
-        analysis_card.pack(fill="x", pady=(0, 12))
-        ctk.CTkLabel(analysis_card, text="Área de Análise do Template", font=("Segoe UI", 14, "bold"), text_color="#F2FBF5", anchor="w").pack(anchor="w", padx=14, pady=(12, 6))
-        ctk.CTkLabel(analysis_card, text="Selecione um template na aba Documento ou use o botão abaixo para detectar marcadores, parágrafos, tabelas, cabeçalhos e rodapés.", font=("Segoe UI", 12), text_color="#B7C9BC", anchor="w").pack(anchor="w", padx=14, pady=(0, 8))
-        ctk.CTkButton(analysis_card, text="Analisar Template Atual", fg_color="#22C55E", hover_color="#16A34A", command=self.analyze_template_section).pack(fill="x", padx=14, pady=(0, 10))
-        self.analysis_view = ctk.CTkTextbox(analysis_card, fg_color="#06140D", text_color="#F2FBF5", border_width=1, border_color="#22543D", font=("Segoe UI", 12), height=180)
-        self.analysis_view.pack(fill="x", padx=14, pady=(0, 14))
-        self.analysis_view.configure(state="disabled")
-
-        form_card = ctk.CTkFrame(wrapper, fg_color="#0B2418", corner_radius=8)
-        form_card.pack(fill="x", pady=(0, 12))
-        ctk.CTkLabel(form_card, text="Adicionar marcador", font=("Segoe UI", 14, "bold"), text_color="#F2FBF5", anchor="w").pack(anchor="w", padx=14, pady=(12, 6))
-
-        self.custom_marker = ctk.CTkEntry(form_card, placeholder_text="Ex.: TELEFONE", fg_color="#06140D", border_color="#22543D", text_color="#F2FBF5")
-        self.custom_marker.pack(fill="x", padx=14, pady=6)
-        self.custom_value = ctk.CTkEntry(form_card, placeholder_text="Valor do marcador", fg_color="#06140D", border_color="#22543D", text_color="#F2FBF5")
-        self.custom_value.pack(fill="x", padx=14, pady=6)
-
-        ctk.CTkButton(form_card, text="Salvar Marcador", fg_color="#22C55E", hover_color="#16A34A", command=self.save_mapping).pack(fill="x", padx=14, pady=(6, 12))
-
-        list_card = ctk.CTkFrame(wrapper, fg_color="#0B2418", corner_radius=8)
-        list_card.pack(fill="both", expand=True)
-        ctk.CTkLabel(list_card, text="Marcadores cadastrados", font=("Segoe UI", 14, "bold"), text_color="#F2FBF5", anchor="w").pack(anchor="w", padx=14, pady=(12, 6))
-        self.mapping_view = ctk.CTkTextbox(list_card, fg_color="#06140D", text_color="#F2FBF5", border_width=1, border_color="#22543D", font=("Segoe UI", 12))
-        self.mapping_view.pack(fill="both", expand=True, padx=14, pady=(0, 14))
-        self.mapping_view.configure(state="disabled")
-
-        self.refresh_mapping_view()
+            self._set_textbox(self.analysis_view, f"Não foi possível analisar o template:\n{exc}")
+            self.status_label.configure(text="Erro na análise")
 
     def update_preview(self) -> None:
         if not self.template_path:
+            self.preview_panel.set_model_name("Nenhum modelo")
+            self.preview_panel.set_marker_count(0)
             self.preview_panel.set_text("Selecione um template .docx para visualizar o documento.")
-            self.preview_panel.set_meta("Nenhum template carregado")
-            self.status_label.configure(text="Status: selecione um template .docx")
+            self.status_label.configure(text="Pronto")
             return
 
         try:
@@ -250,21 +296,19 @@ class DocFillProApp(ctk.CTk):
             replacements = self._build_replacements()
             text = reader.extract_text(replacements)
             analysis = reader.analyze_template()
+            marker_count = len(analysis["placeholders"]) or len(self.template_suggestions)
+            self.preview_panel.set_model_name(self.template_path.name)
+            self.preview_panel.set_marker_count(marker_count)
             self.preview_panel.set_text(text)
-            self.preview_panel.set_meta(
-                f"{self.template_path.name} | {len(text):,} caracteres | "
-                f"{len(analysis['placeholders'])} marcadores | "
-                f"{len(self.template_suggestions)} campos detectados"
-            )
-            self.status_label.configure(text=f"Status: preview atualizado com {len(replacements)} substituições")
+            self.status_label.configure(text="Pronto")
         except Exception as exc:
             self.preview_panel.set_text(f"Não foi possível gerar o preview: {exc}")
-            self.preview_panel.set_meta("Erro ao ler o template")
-            self.status_label.configure(text="Status: erro na leitura do template")
+            self.preview_panel.set_marker_count(0)
+            self.status_label.configure(text="Erro no preview")
 
     def select_template(self) -> None:
         file_path = filedialog.askopenfilename(
-            title="Adicionar arquivo Word",
+            title="Selecionar Template DOCX",
             filetypes=[
                 ("Word moderno (.docx)", "*.docx"),
                 ("Word antigo (.doc)", "*.doc"),
@@ -278,13 +322,11 @@ class DocFillProApp(ctk.CTk):
         folder = filedialog.askdirectory(title="Selecionar Pasta de Saída")
         if folder:
             self.output_folder = Path(folder)
-            self.form_panel.set_output_info(str(self.output_folder))
-            self.toolbar_output_label.configure(text=f"Saída: {self.output_folder.name}")
-            self.status_label.configure(text=f"Status: pasta de saída definida - {folder}")
+            self.status_label.configure(text="Pasta definida")
 
     def clear_form(self) -> None:
         self.form_panel.clear()
-        self.status_label.configure(text="Status: campos limpos")
+        self.status_label.configure(text="Campos limpos")
 
     def generate_document(self) -> None:
         if not self.template_path:
@@ -306,24 +348,22 @@ class DocFillProApp(ctk.CTk):
             output_folder = Path(selected_folder)
             self.output_folder = output_folder
 
-        if not output_folder:
-            return
-
         replacements = self._build_replacements()
         comprador = values.get("{{COMPRADOR}}", "").strip()
         sanitized_name = self._sanitize_filename(comprador)
-        output_path = Path(output_folder) / f"DECLARACAO - {sanitized_name}.docx"
-        output_path = self._next_available_path(output_path)
+        output_path = self._next_available_path(Path(output_folder) / f"DECLARACAO - {sanitized_name}.docx")
 
         try:
             writer = DOCXWriter()
             writer.generate(self.template_path, output_path, replacements)
             messagebox.showinfo("Sucesso", f"Documento gerado com sucesso em:\n{output_path}")
-            self.status_label.configure(text=f"Status: documento gerado - {output_path.name}")
+            self.status_label.configure(text="Documento gerado")
         except Exception as exc:
             messagebox.showerror("Erro ao gerar", f"Não foi possível gerar o arquivo: {exc}")
 
     def save_mapping(self) -> None:
+        if self.custom_marker is None or self.custom_value is None:
+            return
         marker = self.custom_marker.get().strip()
         value = self.custom_value.get().strip()
 
@@ -339,21 +379,17 @@ class DocFillProApp(ctk.CTk):
             messagebox.showerror("Erro", str(exc))
 
     def refresh_mapping_view(self) -> None:
+        if self.mapping_view is None:
+            return
         data = self.mapping_manager.load()
-        self.mapping_view.configure(state="normal")
-        self.mapping_view.delete("1.0", "end")
-        if not data:
-            self.mapping_view.insert("1.0", "Nenhum marcador adicional cadastrado.")
-        else:
-            lines = [f"{key} = {value}" for key, value in sorted(data.items())]
-            self.mapping_view.insert("1.0", "\n".join(lines))
-        self.mapping_view.configure(state="disabled")
+        lines = ["Nenhum marcador adicional cadastrado."] if not data else [f"{key} = {value}" for key, value in sorted(data.items())]
+        self._set_textbox(self.mapping_view, "\n".join(lines))
 
     def load_template(self, file_path: str | Path, show_errors: bool = True) -> None:
         path = Path(file_path)
         if not path.exists():
             message = f"Template não encontrado:\n{path}"
-            self.status_label.configure(text="Status: template não encontrado")
+            self.status_label.configure(text="Template não encontrado")
             if show_errors:
                 messagebox.showerror("Erro", message)
             else:
@@ -366,10 +402,9 @@ class DocFillProApp(ctk.CTk):
             self.reader = None
             self.template_suggestions = {}
             self.preview_panel.set_text(validation_error)
-            self.preview_panel.set_meta("Arquivo Word não carregado")
-            self.form_panel.set_template_info("nenhum selecionado")
-            self.toolbar_template_label.configure(text="Word: nenhum arquivo")
-            self.status_label.configure(text="Status: arquivo Word não suportado")
+            self.preview_panel.set_model_name("Nenhum modelo")
+            self.preview_panel.set_marker_count(0)
+            self.status_label.configure(text="Arquivo não suportado")
             if show_errors:
                 messagebox.showerror("Arquivo Word não suportado", validation_error)
             return
@@ -380,25 +415,21 @@ class DocFillProApp(ctk.CTk):
             analysis = self.reader.analyze_template()
             self.template_suggestions = self.reader.suggest_values()
             detected = self.form_panel.set_values(self.template_suggestions, only_empty=True)
-            self.form_panel.set_template_info(path.name)
-            self.toolbar_template_label.configure(text=f"Word: {path.name}")
-            if self.output_folder is not None:
-                self.form_panel.set_output_info(str(self.output_folder))
-                self.toolbar_output_label.configure(text=f"Saída: {self.output_folder.name}")
             self.update_preview()
             self.analyze_template_section()
 
             if analysis["placeholders"]:
-                self.status_label.configure(text=f"Status: template carregado com {len(analysis['placeholders'])} marcadores")
+                self.status_label.configure(text=f"{len(analysis['placeholders'])} marcadores")
             elif self.template_suggestions:
-                self.status_label.configure(text=f"Status: modelo sem marcadores; {detected} campos detectados")
+                self.status_label.configure(text=f"{detected} campos detectados")
             else:
-                self.status_label.configure(text="Status: template carregado sem marcadores detectáveis")
+                self.status_label.configure(text="Template carregado")
         except Exception as exc:
             self.template_suggestions = {}
             self.preview_panel.set_text(f"Não foi possível carregar o template:\n{exc}")
-            self.preview_panel.set_meta("Template inválido ou ilegível")
-            self.status_label.configure(text="Status: erro ao carregar template")
+            self.preview_panel.set_model_name("Template inválido")
+            self.preview_panel.set_marker_count(0)
+            self.status_label.configure(text="Erro ao carregar")
             if show_errors:
                 messagebox.showerror("Erro ao carregar", f"Não foi possível carregar o template:\n{exc}")
 
@@ -473,3 +504,10 @@ class DocFillProApp(ctk.CTk):
             if not candidate.exists():
                 return candidate
         raise FileExistsError("Não foi possível encontrar um nome livre para o arquivo gerado.")
+
+    @staticmethod
+    def _set_textbox(textbox, value: str) -> None:
+        textbox.configure(state="normal")
+        textbox.delete("1.0", "end")
+        textbox.insert("1.0", value)
+        textbox.configure(state="disabled")

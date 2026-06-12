@@ -1,3 +1,5 @@
+from datetime import date
+
 import customtkinter as ctk
 
 
@@ -5,169 +7,192 @@ class FormPanel(ctk.CTkFrame):
     """Painel lateral com os campos de preenchimento e ações."""
 
     REQUIRED_MARKERS = {"{{COMPRADOR}}", "{{CPF_CNPJ}}", "{{VENDEDOR}}"}
-    ENTRY_BORDER = "#22543D"
-    ENTRY_BORDER_REQUIRED = "#D97706"
+    ENTRY_BORDER = "#315A43"
+    ENTRY_BORDER_REQUIRED = "#315A43"
     ENTRY_BORDER_ERROR = "#EF4444"
 
     FIELD_DEFINITIONS = [
-        ("DADOS DO COMPRADOR", [
-            ("Nome Completo", "{{COMPRADOR}}"),
-            ("Nacionalidade", "{{NACIONALIDADE}}"),
-            ("Profissão", "{{PROFISSAO}}"),
-            ("Estado Civil", "{{ESTADO_CIVIL}}"),
-            ("CPF/CNPJ", "{{CPF_CNPJ}}"),
+        ("Dados do Comprador", [
+            ("Nome Completo", "{{COMPRADOR}}", "Digite o nome completo"),
+            ("Nacionalidade", "{{NACIONALIDADE}}", "Digite a nacionalidade"),
+            ("Profissão", "{{PROFISSAO}}", "Digite a profissão"),
+            ("Estado Civil", "{{ESTADO_CIVIL}}", "Digite o estado civil"),
+            ("CPF / CNPJ", "{{CPF_CNPJ}}", "Digite o CPF ou CNPJ"),
         ]),
-        ("DADOS DO IMÓVEL", [
-            ("Lote / Unidade", "{{LOTE}}"),
-            ("Quadra", "{{QUADRA}}"),
-            ("Empreendimento", "{{EMPREENDIMENTO}}"),
+        ("Dados do Imóvel", [
+            ("Lote / Unidade", "{{LOTE}}", "Ex.: 04 ou 1203"),
+            ("Quadra", "{{QUADRA}}", "Ex.: 08B"),
+            ("Empreendimento", "{{EMPREENDIMENTO}}", "Ex.: Alphaville Ribeirão Preto"),
         ]),
-        ("DADOS DO VENDEDOR", [
-            ("Nome do Vendedor", "{{VENDEDOR}}"),
+        ("Dados do Vendedor", [
+            ("Nome do Vendedor", "{{VENDEDOR}}", "Digite o nome do vendedor"),
         ]),
-        ("DADOS DO DOCUMENTO", [
-            ("Cidade", "{{CIDADE}}"),
-            ("Data", "{{DATA}}"),
+        ("Dados do Documento", [
+            ("Cidade", "{{CIDADE}}", "Ex.: Ribeirão Preto"),
+            ("Data", "{{DATA}}", "Ex.: 01 de Junho de 2026"),
         ]),
     ]
 
     def __init__(self, master: ctk.CTkFrame, on_update, callbacks: dict) -> None:
         super().__init__(
             master,
-            fg_color="#0B2418",
-            corner_radius=8,
+            fg_color="#0B1F16",
+            corner_radius=14,
             border_width=1,
-            border_color="#22543D",
+            border_color="#244B36",
         )
         self.on_update = on_update
         self.callbacks = callbacks
         self.entries = {}
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
-        self.configure(width=460)
+        self.grid_rowconfigure(1, weight=1)
 
         self._build_header()
-        self._build_actions()
-        self._build_scrollable_fields()
+        self._build_content()
 
     def _build_header(self) -> None:
         header = ctk.CTkFrame(self, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 8))
-        header.grid_columnconfigure(0, weight=1)
+        header.grid(row=0, column=0, sticky="ew", padx=18, pady=(18, 12))
+        header.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
             header,
-            text="Campos de Troca",
-            font=("Segoe UI", 20, "bold"),
-            text_color="#F2FBF5",
+            text="▤",
+            font=("Segoe UI", 24, "bold"),
+            text_color="#39FF7A",
+        ).grid(row=0, column=0, rowspan=2, sticky="nw", padx=(0, 12))
+
+        ctk.CTkLabel(
+            header,
+            text="Preencha os Dados",
+            font=("Segoe UI", 18, "bold"),
+            text_color="#39FF7A",
             anchor="w",
-        ).grid(row=0, column=0, sticky="ew")
+        ).grid(row=0, column=1, sticky="ew")
 
         ctk.CTkLabel(
             header,
-            text="Preencha os dados que substituirão o conteúdo do Word.",
+            text="Insira as informações para preencher o documento.",
             font=("Segoe UI", 12),
-            text_color="#B7C9BC",
+            text_color="#CBD5E1",
             anchor="w",
-            wraplength=390,
-        ).grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ).grid(row=1, column=1, sticky="ew", pady=(3, 0))
 
-    def _build_actions(self) -> None:
-        action_card = ctk.CTkFrame(self, fg_color="#103522", corner_radius=8)
-        action_card.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 10))
-        action_card.grid_columnconfigure(0, weight=1)
-        action_card.grid_columnconfigure(1, weight=1)
+    def _build_content(self) -> None:
+        self.content = ctk.CTkScrollableFrame(self, fg_color="#0B1F16", corner_radius=10)
+        self.content.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        self.content.grid_columnconfigure(0, weight=1)
 
-        self.template_info = ctk.CTkLabel(
-            action_card,
-            text="Word: nenhum arquivo carregado",
-            text_color="#B7C9BC",
-            font=("Segoe UI", 11),
-            anchor="w",
-            justify="left",
-            wraplength=390,
+        for row, (title, fields) in enumerate(self.FIELD_DEFINITIONS):
+            self._build_field_card(row, title, fields)
+
+        self._build_actions_card(len(self.FIELD_DEFINITIONS))
+
+    def _build_field_card(self, row: int, title: str, fields: list[tuple[str, str, str]]) -> None:
+        card = ctk.CTkFrame(
+            self.content,
+            fg_color="#10291D",
+            corner_radius=12,
+            border_width=1,
+            border_color="#244B36",
         )
-        self.template_info.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(12, 4))
-
-        self.output_info = ctk.CTkLabel(
-            action_card,
-            text="Saída: escolher ao gerar",
-            text_color="#B7C9BC",
-            font=("Segoe UI", 11),
-            anchor="w",
-            justify="left",
-            wraplength=390,
-        )
-        self.output_info.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
-
-        buttons = [
-            ("Adicionar Word (.docx)", self.callbacks.get("select_template"), 2, 0, 2),
-            ("Escolher Pasta", self.callbacks.get("select_output"), 3, 0, 1),
-            ("Gerar Documento", self.callbacks.get("generate"), 3, 1, 1),
-            ("Limpar Campos", self.callbacks.get("clear"), 4, 0, 2),
-        ]
-
-        for text, command, row, col, span in buttons:
-            button = ctk.CTkButton(
-                action_card,
-                text=text,
-                fg_color="#22C55E" if text != "Limpar Campos" else "#15803D",
-                hover_color="#16A34A",
-                text_color="#F2FBF5",
-                command=command,
-            )
-            button.grid(
-                row=row,
-                column=col,
-                columnspan=span,
-                sticky="ew",
-                padx=12 if span == 2 else (12, 6) if col == 0 else (6, 12),
-                pady=(0, 8),
-            )
-
-    def _build_scrollable_fields(self) -> None:
-        self.field_area = ctk.CTkScrollableFrame(self, fg_color="#0B2418", corner_radius=8)
-        self.field_area.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 12))
-        self.field_area.grid_columnconfigure(0, weight=1)
-
-        for index, (title, fields) in enumerate(self.FIELD_DEFINITIONS):
-            self._build_field_card(index, title, fields)
-
-    def _build_field_card(self, row: int, title: str, fields: list[tuple[str, str]]) -> None:
-        card = ctk.CTkFrame(self.field_area, fg_color="#06140D", corner_radius=8)
-        card.grid(row=row, column=0, sticky="ew", padx=6, pady=7)
-        card.grid_columnconfigure(0, weight=1)
+        card.grid(row=row, column=0, sticky="ew", padx=0, pady=(0, 12))
+        columns = 3 if len(fields) >= 3 else 2
+        for column in range(columns):
+            card.grid_columnconfigure(column, weight=1, uniform=f"{title}-columns")
 
         ctk.CTkLabel(
             card,
             text=title,
-            font=("Segoe UI", 14, "bold"),
-            text_color="#F2FBF5",
+            font=("Segoe UI", 13, "bold"),
+            text_color="#39FF7A",
             anchor="w",
-        ).grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 4))
+        ).grid(row=0, column=0, columnspan=columns, sticky="ew", padx=14, pady=(14, 10))
 
-        field_row = 1
-        for label, marker in fields:
-            label_text = f"{label} *" if marker in self.REQUIRED_MARKERS else label
+        for index, (label, marker, placeholder) in enumerate(fields):
+            field_row = 1 + (index // columns) * 2
+            field_col = index % columns
+            span = columns if len(fields) == 1 else 1
+            if title == "Dados do Documento":
+                span = 1
+
             ctk.CTkLabel(
                 card,
-                text=label_text,
-                text_color="#B7C9BC",
+                text=label,
+                font=("Segoe UI", 11, "bold"),
+                text_color="#F8FAFC",
                 anchor="w",
-            ).grid(row=field_row, column=0, sticky="ew", padx=12, pady=(7, 0))
+            ).grid(row=field_row, column=field_col, columnspan=span, sticky="ew", padx=14, pady=(0, 5))
+
+            entry_frame = ctk.CTkFrame(card, fg_color="transparent")
+            entry_frame.grid(row=field_row + 1, column=field_col, columnspan=span, sticky="ew", padx=14, pady=(0, 14))
+            entry_frame.grid_columnconfigure(0, weight=1)
 
             entry = ctk.CTkEntry(
-                card,
-                placeholder_text=marker,
-                fg_color="#071A12",
-                border_color=self.ENTRY_BORDER_REQUIRED if marker in self.REQUIRED_MARKERS else self.ENTRY_BORDER,
-                text_color="#F2FBF5",
+                entry_frame,
+                placeholder_text=placeholder,
+                fg_color="#07130D",
+                border_color=self.ENTRY_BORDER,
+                text_color="#F8FAFC",
+                placeholder_text_color="#94A3B8",
+                height=34,
             )
-            entry.grid(row=field_row + 1, column=0, sticky="ew", padx=12, pady=(3, 8))
+            entry.grid(row=0, column=0, sticky="ew")
             entry.bind("<KeyRelease>", lambda event=None, _marker=marker: self._handle_key_update(_marker))
             self.entries[marker] = entry
-            field_row += 2
+
+            if marker == "{{DATA}}":
+                ctk.CTkButton(
+                    entry_frame,
+                    text="Hoje",
+                    width=52,
+                    height=34,
+                    fg_color="#132F22",
+                    hover_color="#16A34A",
+                    text_color="#39FF7A",
+                    command=self._fill_today,
+                ).grid(row=0, column=1, padx=(6, 0))
+
+    def _build_actions_card(self, row: int) -> None:
+        card = ctk.CTkFrame(
+            self.content,
+            fg_color="#10291D",
+            corner_radius=12,
+            border_width=1,
+            border_color="#244B36",
+        )
+        card.grid(row=row, column=0, sticky="ew", padx=0, pady=(0, 4))
+        for column in range(4):
+            card.grid_columnconfigure(column, weight=1, uniform="action-buttons")
+
+        ctk.CTkLabel(
+            card,
+            text="Ações",
+            font=("Segoe UI", 13, "bold"),
+            text_color="#39FF7A",
+            anchor="w",
+        ).grid(row=0, column=0, columnspan=4, sticky="ew", padx=14, pady=(14, 10))
+
+        actions = [
+            ("Selecionar\nTemplate", self.callbacks.get("select_template"), "#132F22"),
+            ("Pasta de\nSaída", self.callbacks.get("select_output"), "#132F22"),
+            ("Gerar\nDocumento", self.callbacks.get("generate"), "#16A34A"),
+            ("Limpar\nCampos", self.callbacks.get("clear"), "#132F22"),
+        ]
+
+        for column, (text, command, color) in enumerate(actions):
+            button = ctk.CTkButton(
+                card,
+                text=text,
+                height=74,
+                fg_color=color,
+                hover_color="#22C55E",
+                text_color="#F8FAFC",
+                font=("Segoe UI", 12, "bold"),
+                command=command,
+            )
+            button.grid(row=1, column=column, sticky="ew", padx=(14 if column == 0 else 5, 14 if column == 3 else 5), pady=(0, 14))
 
     def _notify_update(self) -> None:
         if self.on_update:
@@ -176,6 +201,19 @@ class FormPanel(ctk.CTkFrame):
     def _handle_key_update(self, marker: str) -> None:
         if marker in self.REQUIRED_MARKERS:
             self.entries[marker].configure(border_color=self.ENTRY_BORDER_REQUIRED)
+        self._notify_update()
+
+    def _fill_today(self) -> None:
+        months = [
+            "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+            "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+        ]
+        today = date.today()
+        entry = self.entries.get("{{DATA}}")
+        if entry is None:
+            return
+        entry.delete(0, "end")
+        entry.insert(0, f"{today.day:02d} de {months[today.month - 1]} de {today.year}")
         self._notify_update()
 
     def get_values(self) -> dict:
@@ -211,15 +249,16 @@ class FormPanel(ctk.CTkFrame):
             self.entries[marker].configure(border_color=border)
 
     def clear_validation(self) -> None:
-        for marker, entry in self.entries.items():
-            border = self.ENTRY_BORDER_REQUIRED if marker in self.REQUIRED_MARKERS else self.ENTRY_BORDER
-            entry.configure(border_color=border)
+        for entry in self.entries.values():
+            entry.configure(border_color=self.ENTRY_BORDER)
 
     def set_template_info(self, text: str) -> None:
-        self.template_info.configure(text=f"Word: {text}")
+        # Mantido para compatibilidade com a janela principal.
+        return None
 
     def set_output_info(self, text: str) -> None:
-        self.output_info.configure(text=f"Saída: {text}")
+        # Mantido para compatibilidade com a janela principal.
+        return None
 
     def clear(self) -> None:
         for entry in self.entries.values():
