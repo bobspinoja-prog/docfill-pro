@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+
+build/
+build_onefile/
+dist/
+dist_onefile/
+dist_installer/
+installer/staging/
+test_outputs/
+
+.venv/
+*.log
