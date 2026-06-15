@@ -54,6 +54,45 @@ def test_marker_docx_roundtrip() -> None:
         assert "{{" not in generated_text
 
 
+def test_marker_split_across_runs_is_replaced() -> None:
+    with TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        template = tmp_path / "split.docx"
+        output = tmp_path / "split_output.docx"
+
+        doc = Document()
+        paragraph = doc.add_paragraph()
+        paragraph.add_run("Olá ")
+        paragraph.add_run("{{COMPRADOR}}")
+        paragraph.add_run("!")
+        doc.save(template)
+
+        DOCXWriter().generate(template, output, {"{{COMPRADOR}}": "Cliente Teste"})
+
+        generated_text = DOCXReader(output).extract_text({})
+
+        assert "Cliente Teste" in generated_text
+        assert "{{COMPRADOR}}" not in generated_text
+
+
+def test_repeated_marker_is_fully_replaced() -> None:
+    with TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        template = tmp_path / "repeated.docx"
+        output = tmp_path / "repeated_output.docx"
+
+        doc = Document()
+        doc.add_paragraph(" ".join(["{{COMPRADOR}}"] * 12))
+        doc.save(template)
+
+        DOCXWriter().generate(template, output, {"{{COMPRADOR}}": "Cliente"})
+
+        generated_text = DOCXReader(output).extract_text({})
+
+        assert generated_text.count("Cliente") == 12
+        assert "{{COMPRADOR}}" not in generated_text
+
+
 def test_mapping_priority_and_filename() -> None:
     with TemporaryDirectory() as tmp:
         mapping = MappingManager(Path(tmp) / "mappings.json")
@@ -143,6 +182,8 @@ def test_example_document_if_available() -> None:
 def main() -> None:
     tests = [
         test_marker_docx_roundtrip,
+        test_marker_split_across_runs_is_replaced,
+        test_repeated_marker_is_fully_replaced,
         test_mapping_priority_and_filename,
         test_ui_layout,
         test_example_document_if_available,

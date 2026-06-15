@@ -1,11 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
 
+
+datas = [('assets\\logo.png', 'assets'), ('assets\\logo.ico', 'assets'), ('assets\\app_icon.ico', 'assets')]
+if Path('assets/icons').exists():
+    datas.append(('assets\\icons', 'assets\\icons'))
+
+icon_path = 'assets\\icons\\docfill.ico' if Path('assets/icons/docfill.ico').exists() else 'assets\\app_icon.ico'
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets\\logo.png', 'assets'), ('assets\\logo.ico', 'assets')],
+    datas=datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +42,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['assets\\logo.ico'],
+    icon=icon_path,
 )

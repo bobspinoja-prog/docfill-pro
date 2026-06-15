@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict
 
@@ -22,30 +23,36 @@ class MappingManager:
     def __init__(self, file_path: str | Path | None = None) -> None:
         self.file_path = Path(file_path) if file_path else self.DEFAULT_FILE
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.file_path.exists() or not self.file_path.read_text(encoding="utf-8").strip():
-            self.file_path.write_text("{}", encoding="utf-8")
         self._cache: Dict[str, str] | None = None
+        self._ensure_file_exists()
 
     def load(self) -> Dict[str, str]:
         if self._cache is not None:
             return dict(self._cache)
 
         try:
-            data = json.loads(self.file_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                cleaned: Dict[str, str] = {}
-                for key, value in data.items():
-                    try:
-                        cleaned[self.normalize_marker(str(key))] = str(value).strip()
-                    except ValueError:
-                        continue
-                self._cache = cleaned
-                return dict(cleaned)
-        except (OSError, json.JSONDecodeError):
-            pass
+            raw_text = self.file_path.read_text(encoding="utf-8")
+            if not raw_text.strip():
+                self._cache = {}
+                return {}
 
-        self._cache = {}
-        return {}
+            data = json.loads(raw_text)
+            if not isinstance(data, dict):
+                raise ValueError("Arquivo de mapeamento inválido.")
+
+            cleaned: Dict[str, str] = {}
+            for key, value in data.items():
+                try:
+                    cleaned[self.normalize_marker(str(key))] = str(value).strip()
+                except ValueError:
+                    continue
+
+            self._cache = cleaned
+            return dict(cleaned)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            self._cache = {}
+            self._atomic_write("{}")
+            return {}
 
     def save(self, mapping: Dict[str, str]) -> None:
         cleaned: Dict[str, str] = {}
@@ -55,7 +62,7 @@ class MappingManager:
             except ValueError:
                 continue
 
-        self.file_path.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._atomic_write(json.dumps(cleaned, indent=2, ensure_ascii=False))
         self._cache = cleaned
 
     def add_marker(self, marker: str, value: str) -> Dict[str, str]:
@@ -74,6 +81,20 @@ class MappingManager:
                 continue
             replacements[marker] = value if value is not None else ""
         return replacements
+
+    def _ensure_file_exists(self) -> None:
+        try:
+            if self.file_path.exists() and self.file_path.read_text(encoding="utf-8").strip():
+                return
+        except (OSError, UnicodeDecodeError):
+            pass
+        self._atomic_write("{}")
+
+    def _atomic_write(self, content: str) -> None:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.file_path.parent, delete=False) as handle:
+            handle.write(content)
+            temp_path = Path(handle.name)
+        os.replace(temp_path, self.file_path)
 
     @staticmethod
     def normalize_marker(marker: str) -> str:

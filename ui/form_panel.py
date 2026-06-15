@@ -2,6 +2,8 @@ from datetime import date
 
 import customtkinter as ctk
 
+from ui.i18n import t
+from ui.symbol_manager import SymbolManager
 from ui.theme import CARD_STYLE, COLORS, FIELD_STYLE, font, symbol_font
 
 
@@ -80,6 +82,7 @@ class FormPanel(ctk.CTkFrame):
         self.callbacks = callbacks
         self.entries: dict[str, ctk.CTkEntry] = {}
         self.error_labels: dict[str, ctk.CTkLabel] = {}
+        self.sidebar_symbol_image = SymbolManager.get_symbol("sidebar", size=28)
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -92,17 +95,26 @@ class FormPanel(ctk.CTkFrame):
         header.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 8))
         header.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(
-            header,
-            text="▤",
-            width=22,
-            text_color=COLORS["green3"],
-            font=symbol_font(18, "bold"),
-        ).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        if self.sidebar_symbol_image is not None:
+            ctk.CTkLabel(
+                header,
+                image=self.sidebar_symbol_image,
+                text="",
+                width=30,
+                fg_color="transparent",
+            ).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(2, 0))
+        else:
+            ctk.CTkLabel(
+                header,
+                text="▤",
+                width=22,
+                text_color=COLORS["green3"],
+                font=symbol_font(18, "bold"),
+            ).grid(row=0, column=0, sticky="w", padx=(0, 8))
 
         ctk.CTkLabel(
             header,
-            text="Preencha os Dados",
+            text=t("form_header"),
             text_color=COLORS["text"],
             font=font(13, "bold"),
             anchor="w",
@@ -127,35 +139,35 @@ class FormPanel(ctk.CTkFrame):
         self._build_actions_card(4)
 
     def _build_buyer_card(self, row: int) -> None:
-        card = CollapsibleCard(self.content, "Dados do Comprador", "♙")
+        card = CollapsibleCard(self.content, t("fields_title"), "♙")
         card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         self._two_col_row(card.body, 0)
-        self._add_field(card.body, 0, 0, "Nome Completo", "{{COMPRADOR}}", "Digite o nome completo", columnspan=2)
-        self._add_field(card.body, 1, 0, "Nacionalidade", "{{NACIONALIDADE}}", "Digite a nacionalidade")
-        self._add_field(card.body, 1, 1, "Profissão", "{{PROFISSAO}}", "Digite a profissão")
-        self._add_field(card.body, 2, 0, "Estado Civil", "{{ESTADO_CIVIL}}", "Digite o estado civil")
-        self._add_field(card.body, 2, 1, "CPF/CNPJ", "{{CPF_CNPJ}}", "Digite o CPF ou CNPJ")
+        self._add_field(card.body, 0, 0, "Nome Completo", "{{COMPRADOR}}", t("placeholder_name"), columnspan=2)
+        self._add_field(card.body, 1, 0, "Nacionalidade", "{{NACIONALIDADE}}", t("placeholder_nationality"))
+        self._add_field(card.body, 1, 1, "Profissão", "{{PROFISSAO}}", t("placeholder_profession"))
+        self._add_field(card.body, 2, 0, "Estado Civil", "{{ESTADO_CIVIL}}", t("placeholder_marital_status"))
+        self._add_field(card.body, 2, 1, "CPF/CNPJ", "{{CPF_CNPJ}}", t("placeholder_cpf"))
 
     def _build_property_card(self, row: int) -> None:
-        card = CollapsibleCard(self.content, "Dados do Imóvel", "▦")
+        card = CollapsibleCard(self.content, t("property_title"), "▦")
         card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         self._two_col_row(card.body, 0)
-        self._add_field(card.body, 0, 0, "Lote/Unidade", "{{LOTE}}", "Ex.: 04 ou 1203")
-        self._add_field(card.body, 0, 1, "Quadra", "{{QUADRA}}", "Ex.: 08B")
-        self._add_field(card.body, 1, 0, "Empreendimento", "{{EMPREENDIMENTO}}", "Ex.: Alphaville Ribeirão Preto", columnspan=2)
+        self._add_field(card.body, 0, 0, "Lote/Unidade", "{{LOTE}}", t("placeholder_lote"))
+        self._add_field(card.body, 0, 1, "Quadra", "{{QUADRA}}", t("placeholder_quadra"))
+        self._add_field(card.body, 1, 0, "Empreendimento", "{{EMPREENDIMENTO}}", t("placeholder_empreendimento"), columnspan=2)
 
     def _build_seller_card(self, row: int) -> None:
-        card = CollapsibleCard(self.content, "Dados do Vendedor", "♙")
+        card = CollapsibleCard(self.content, t("seller_title"), "♙")
         card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         self._two_col_row(card.body, 0)
-        self._add_field(card.body, 0, 0, "Nome do Vendedor", "{{VENDEDOR}}", "Digite o nome do vendedor", columnspan=2)
+        self._add_field(card.body, 0, 0, "Nome do Vendedor", "{{VENDEDOR}}", t("placeholder_vendedor"), columnspan=2)
 
     def _build_document_card(self, row: int) -> None:
-        card = CollapsibleCard(self.content, "Dados do Documento", "▤")
+        card = CollapsibleCard(self.content, t("document_title"), "▤")
         card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         self._two_col_row(card.body, 0)
-        self._add_field(card.body, 0, 0, "Cidade", "{{CIDADE}}", "Ex.: Ribeirão Preto")
-        self._add_field(card.body, 0, 1, "Data", "{{DATA}}", "Ex.: 15 de Junho de 2026", with_today=True)
+        self._add_field(card.body, 0, 0, "Cidade", "{{CIDADE}}", t("placeholder_city"))
+        self._add_field(card.body, 0, 1, "Data", "{{DATA}}", t("placeholder_date"), with_today=True)
 
     def _build_actions_card(self, row: int) -> None:
         card = ctk.CTkFrame(
@@ -171,19 +183,19 @@ class FormPanel(ctk.CTkFrame):
 
         ctk.CTkLabel(
             card,
-            text="AÇÕES",
+            text=t("actions_title"),
             text_color=COLORS["green3"],
             font=font(11, "bold"),
             anchor="w",
         ).grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=(10, 8))
 
-        self._action_button(card, 1, 0, "Selecionar Template", "▣", self.callbacks.get("select_template"))
-        self._action_button(card, 1, 1, "Pasta de Saída", "▰", self.callbacks.get("select_output"))
+        self._action_button(card, 1, 0, t("btn_select_template"), "▣", self.callbacks.get("select_template"))
+        self._action_button(card, 1, 1, t("btn_output_folder"), "▰", self.callbacks.get("select_output"))
         self._action_button(
             card,
             2,
             0,
-            "Gerar Documento",
+            t("btn_generate"),
             "✓",
             self.callbacks.get("generate"),
             columnspan=2,
@@ -194,7 +206,7 @@ class FormPanel(ctk.CTkFrame):
             card,
             3,
             0,
-            "Limpar Campos",
+            t("btn_clear"),
             "⌫",
             self.callbacks.get("clear"),
             columnspan=2,
@@ -294,7 +306,7 @@ class FormPanel(ctk.CTkFrame):
         if with_today:
             ctk.CTkButton(
                 input_row,
-                text="Hoje",
+                text=t("btn_today"),
                 width=52,
                 height=30,
                 fg_color=COLORS["bg4"],
@@ -375,7 +387,7 @@ class FormPanel(ctk.CTkFrame):
         for marker in self.REQUIRED_MARKERS:
             if marker in missing:
                 self.entries[marker].configure(border_color=COLORS["red"])
-                self.error_labels[marker].configure(text="Campo obrigatório")
+                self.error_labels[marker].configure(text=t("required_label"))
             else:
                 self.entries[marker].configure(border_color=COLORS["border3"])
                 self.error_labels[marker].configure(text="")

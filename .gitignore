@@ -10,4 +10,5 @@ installer/staging/
 test_outputs/
 
 .venv/
+.vscode/
 *.log

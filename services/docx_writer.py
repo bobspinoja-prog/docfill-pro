@@ -52,10 +52,12 @@ class DOCXWriter:
         if not replacements or not paragraph.text:
             return
 
-        replacements_done = 0
-        max_replacements = max(1, len(paragraph.text) * max(1, len(replacements)))
+        full_text = "".join(run.text for run in paragraph.runs)
+        replacement_count = sum(full_text.count(marker) for marker in replacements if marker)
+        if replacement_count == 0:
+            return
 
-        while replacements_done < max_replacements:
+        for _ in range(replacement_count):
             full_text = "".join(run.text for run in paragraph.runs)
             match = cls._find_next_marker(full_text, replacements)
             if match is None:
@@ -64,7 +66,6 @@ class DOCXWriter:
             start, marker = match
             end = start + len(marker)
             cls._replace_text_range(paragraph.runs, start, end, replacements[marker])
-            replacements_done += 1
 
     @staticmethod
     def _replace_text(text: str, replacements: dict[str, str]) -> str:

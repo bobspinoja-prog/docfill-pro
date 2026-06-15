@@ -1,0 +1,70 @@
+{
+  "data": "2026-06-15T13:22:14.066159",
+  "projeto": "DocFill Pro",
+  "versao": "1.1.0",
+  "paths": {
+    "project_root": "C:\\Users\\estagiario1\\Nova pasta\\DocFillPro",
+    "assets": "C:\\Users\\estagiario1\\Nova pasta\\DocFillPro\\assets",
+    "icons": "C:\\Users\\estagiario1\\Nova pasta\\DocFillPro\\assets\\icons"
+  },
+  "assets": {
+    "external": {
+      "source": "C:\\Users\\estagiario1\\Nova pasta\\DocFillPro\\assets\\ICON_EXTERNAL.png",
+      "source_status": "ok",
+      "ico": "C:\\Users\\estagiario1\\Nova pasta\\DocFillPro\\assets\\icons\\docfill.ico",
+      "ico_status": "ok",
+      "app_icon": "C:\\Users\\estagiario1\\Nova pasta\\DocFillPro\\assets\\app_icon.ico",
+      "app_icon_status": "ok",
+      "generated_pngs": [
+        "docfill_128x128.png",
+        "docfill_16x16.png",
+        "docfill_24x24.png",
+        "docfill_256x256.png",
+        "docfill_32x32.png",
+        "docfill_48x48.png",
+        "docfill_512x512.png",
+        "docfill_64x64.png"
+      ],
+      "ready": true
+    },
+    "internal": {
+      "source": "C:\\Users\\estagiario1\\Nova pasta\\DocFillPro\\assets\\SYMBOL_INTERNAL.png",
+      "source_status": "ok",
+      "generated_pngs": [
+        "symbol_empty_96x96.png",
+        "symbol_header_20x20.png",
+        "symbol_loading_48x48.png",
+        "symbol_original.png",
+        "symbol_sidebar_32x32.png"
+      ],
+      "symbol_manager_status": "ok",
+      "ready": true
+    }
+  },
+  "packaging": {
+    "spec_status": "ok",
+    "inno_status": "ok",
+    "ready": true
+  },
+  "usage": {
+    "external_icon": [
+      "Window icon: ui/main_window.py DocFillProApp._set_app_icon()",
+      "Window/taskbar icon fallback: ui/main_window.py DocFillProApp._apply_window_icon()",
+      "Executable icon: DOCFILL PRO.spec icon_path",
+      "Installer wizard icon: installer/DOCFILL_PRO_Inno.iss SetupIconFile",
+      "Installed app icon file: installer/DOCFILL_PRO_Inno.iss [Files] app_icon.ico",
+      "Start menu shortcut icon: installer/DOCFILL_PRO_Inno.iss [Icons]",
+      "Desktop shortcut icon: installer/DOCFILL_PRO_Inno.iss [Icons]"
+    ],
+    "internal_symbol": [
+      "Header brand mark: ui/main_window.py DocFillProApp._build_header()",
+      "Internal startup splash overlay: ui/main_window.py DocFillProApp._show_startup_splash()",
+      "Right sidebar/form header: ui/form_panel.py FormPanel._build_header()",
+      "Preview empty state: ui/preview_panel.py PreviewPanel.set_text()",
+      "Preview placeholder/no document state: ui/preview_panel.py PreviewPanel.set_text()",
+      "Preview loading state with pulse: ui/preview_panel.py PreviewPanel.set_loading()",
+      "About dialog: ui/main_window.py DocFillProApp.show_about()"
+    ]
+  },
+  "next_steps": []
+}

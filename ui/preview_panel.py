@@ -4,6 +4,8 @@ import tkinter as tk
 
 import customtkinter as ctk
 
+from ui.i18n import t
+from ui.symbol_manager import SymbolManager
 from ui.theme import COLORS, font, symbol_font
 
 
@@ -24,6 +26,15 @@ class PreviewPanel(ctk.CTkFrame):
         self.marker_count = 0
         self._content = ""
         self._empty_state = True
+        self._empty_symbol_image = SymbolManager.get_symbol_with_opacity("empty", opacity=0.18, size=72)
+        self._empty_symbol_widget = None
+        self._loading_symbol_images = [
+            SymbolManager.get_symbol_with_opacity("loading", opacity=0.36, size=48),
+            SymbolManager.get_symbol_with_opacity("loading", opacity=0.62, size=48),
+        ]
+        self._loading_symbol_widget = None
+        self._loading_job = None
+        self._loading_symbol_index = 0
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -48,7 +59,7 @@ class PreviewPanel(ctk.CTkFrame):
 
         ctk.CTkLabel(
             header,
-            text="Visualização do Documento",
+            text=t("preview_title"),
             text_color=COLORS["text"],
             font=font(13, "bold"),
             anchor="w",
@@ -56,7 +67,7 @@ class PreviewPanel(ctk.CTkFrame):
 
         ctk.CTkLabel(
             header,
-            text="Preview automático ao preencher os campos",
+            text=t("preview_hint"),
             text_color=COLORS["text3"],
             font=font(10),
             anchor="e",
@@ -87,7 +98,7 @@ class PreviewPanel(ctk.CTkFrame):
 
         ctk.CTkLabel(
             file_badge,
-            text="MODELO CARREGADO",
+            text=t("preview_model"),
             text_color=COLORS["text3"],
             font=font(9, "bold"),
             anchor="w",
@@ -95,7 +106,7 @@ class PreviewPanel(ctk.CTkFrame):
 
         self.model_label = ctk.CTkLabel(
             file_badge,
-            text="Nenhum modelo",
+            text=t("preview_none"),
             text_color=COLORS["text2"],
             font=font(11),
             anchor="w",
@@ -142,7 +153,7 @@ class PreviewPanel(ctk.CTkFrame):
 
         ctk.CTkButton(
             toolbar,
-            text="↻  Atualizar",
+            text=t("preview_refresh"),
             width=104,
             height=32,
             fg_color="transparent",
@@ -238,7 +249,7 @@ class PreviewPanel(ctk.CTkFrame):
 
         self.marker_badge = ctk.CTkLabel(
             footer,
-            text="0 marcadores detectados",
+            text="0 " + t("preview_marker_badge"),
             fg_color="#0E7A34",
             text_color=COLORS["green4"],
             corner_radius=5,
@@ -247,15 +258,30 @@ class PreviewPanel(ctk.CTkFrame):
         self.marker_badge.grid(row=0, column=6, padx=10, pady=6)
 
     def set_text(self, text: str) -> None:
-        self._empty_state = not bool(text) or text == "Selecione um template .docx para visualizar o documento."
-        content = text or "Selecione um template .docx para visualizar o documento."
+        self._stop_loading()
+        content = text or t("preview_empty")
+        self._empty_state = not bool(text) or content.rstrip(".") == t("preview_empty")
         self._content = content
 
         self.text.configure(state="normal")
+        if self._empty_symbol_widget is not None:
+            self._empty_symbol_widget.destroy()
+            self._empty_symbol_widget = None
         self.text.delete("1.0", "end")
 
         if self._empty_state:
-            self.text.insert("1.0", "\n\n\n\n▤\n\nSelecione um template .docx para visualizar o documento")
+            self.text.insert("1.0", "\n\n\n")
+            if self._empty_symbol_image is not None:
+                self._empty_symbol_widget = ctk.CTkLabel(
+                    self.text,
+                    image=self._empty_symbol_image,
+                    text="",
+                    fg_color="#FFFFFF",
+                )
+                self.text.window_create("end", window=self._empty_symbol_widget)
+                self.text.insert("end", "\n\n" + t("preview_empty") + "\n" + t("preview_empty_hint"))
+            else:
+                self.text.insert("end", "▤\n\n" + t("preview_empty") + "\n" + t("preview_empty_hint"))
             self.text.tag_add("empty", "1.0", "end")
         else:
             self.text.insert("1.0", content)
@@ -265,24 +291,82 @@ class PreviewPanel(ctk.CTkFrame):
         self._update_counts(content)
         self.after_idle(self._update_page_geometry)
 
+    def set_loading(self, message: str) -> None:
+        self._empty_state = True
+        self._content = message
+        self.text.configure(state="normal")
+        if self._empty_symbol_widget is not None:
+            self._empty_symbol_widget.destroy()
+            self._empty_symbol_widget = None
+        if self._loading_symbol_widget is not None:
+            self._loading_symbol_widget.destroy()
+            self._loading_symbol_widget = None
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", "\n\n\n")
+
+        loading_image = self._current_loading_symbol()
+        if loading_image is not None:
+            self._loading_symbol_widget = ctk.CTkLabel(
+                self.text,
+                image=loading_image,
+                text="",
+                fg_color="#FFFFFF",
+            )
+            self.text.window_create("end", window=self._loading_symbol_widget)
+            self.text.insert("end", "\n\n" + message)
+            self._pulse_loading_symbol()
+        else:
+            self.text.insert("end", "▤\n\n" + message)
+
+        self.text.tag_add("empty", "1.0", "end")
+        self.text.configure(state="disabled")
+        self._update_counts(message)
+        self.after_idle(self._update_page_geometry)
+
     def set_meta(self, text: str) -> None:
         if text and " | " in text:
             self.set_model_name(text.split(" | ", 1)[0])
 
     def set_model_name(self, name: str) -> None:
-        label = name or "Nenhum modelo"
+        label = name or t("preview_none")
         if len(label) > 54:
             label = f"...{label[-51:]}"
         self.model_label.configure(text=label)
 
     def set_marker_count(self, count: int) -> None:
         self.marker_count = max(0, count)
-        self.marker_badge.configure(text=f"{self.marker_count} marcadores detectados")
+        self.marker_badge.configure(text=f"{self.marker_count} " + t("preview_marker_badge"))
 
     def _highlight_markers(self, content: str) -> None:
         self.text.tag_remove("marker", "1.0", "end")
         for match in re.finditer(r"\{\{[^{}]+\}\}", content):
             self.text.tag_add("marker", f"1.0+{match.start()}c", f"1.0+{match.end()}c")
+
+    def _current_loading_symbol(self):
+        available = [image for image in self._loading_symbol_images if image is not None]
+        if not available:
+            return None
+        return available[self._loading_symbol_index % len(available)]
+
+    def _pulse_loading_symbol(self) -> None:
+        if self._loading_symbol_widget is None:
+            return
+        self._loading_symbol_index += 1
+        image = self._current_loading_symbol()
+        if image is not None:
+            self._loading_symbol_widget.configure(image=image)
+        self._loading_job = self.after(1000, self._pulse_loading_symbol)
+
+    def _stop_loading(self) -> None:
+        if self._loading_job is not None:
+            try:
+                self.after_cancel(self._loading_job)
+            except Exception:
+                pass
+            self._loading_job = None
+        if self._loading_symbol_widget is not None:
+            self._loading_symbol_widget.destroy()
+            self._loading_symbol_widget = None
 
     def _update_counts(self, content: str) -> None:
         words = len(re.findall(r"\S+", content))
