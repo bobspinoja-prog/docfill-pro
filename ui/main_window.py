@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
@@ -33,6 +34,7 @@ class DocFillProApp(ctk.CTk):
         self.geometry("1600x900")
         self.minsize(1300, 800)
         self.configure(fg_color=self.BG)
+        self._apply_window_icon()
 
         self.template_path: Path | None = None
         self.output_folder: Path | None = None
@@ -57,7 +59,7 @@ class DocFillProApp(ctk.CTk):
 
     def _build_ui(self) -> None:
         root = ctk.CTkFrame(self, fg_color=self.BG)
-        root.pack(fill="both", expand=True, padx=16, pady=12)
+        root.pack(fill="both", expand=True, padx=16, pady=(0, 10))
         root.grid_columnconfigure(0, weight=1)
         root.grid_rowconfigure(1, weight=1)
 
@@ -66,16 +68,24 @@ class DocFillProApp(ctk.CTk):
         self._build_footer(root)
 
     def _build_header(self, master: ctk.CTkFrame) -> None:
-        header = ctk.CTkFrame(master, fg_color=self.BG, height=90)
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        header = ctk.CTkFrame(master, fg_color=self.BG, height=92)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         header.grid_columnconfigure(1, weight=1)
         header.grid_propagate(False)
 
-        logo_frame = ctk.CTkFrame(header, width=62, height=62, fg_color="#15803D", corner_radius=31)
-        logo_frame.grid(row=0, column=0, rowspan=2, padx=(0, 16), pady=14)
+        logo_frame = ctk.CTkFrame(
+            header,
+            width=62,
+            height=62,
+            fg_color="#15803D",
+            corner_radius=31,
+            border_width=1,
+            border_color="#1FA955",
+        )
+        logo_frame.grid(row=0, column=0, rowspan=2, padx=(0, 16), pady=(19, 11))
         logo_frame.grid_propagate(False)
 
-        logo_path = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
+        logo_path = self._asset_path("logo.png")
         if logo_path.exists():
             try:
                 from PIL import Image
@@ -88,17 +98,17 @@ class DocFillProApp(ctk.CTk):
             ctk.CTkLabel(logo_frame, text="DF", font=("Segoe UI", 18, "bold"), text_color=self.TEXT).place(relx=0.5, rely=0.5, anchor="center")
 
         brand = ctk.CTkFrame(header, fg_color="transparent")
-        brand.grid(row=0, column=1, rowspan=2, sticky="w", pady=12)
+        brand.grid(row=0, column=1, rowspan=2, sticky="w", pady=(18, 10))
 
         brand_line = ctk.CTkFrame(brand, fg_color="transparent")
         brand_line.pack(anchor="w")
         ctk.CTkLabel(
             brand_line,
             text="DocFill Pro",
-            font=("Segoe UI", 29, "bold"),
+            font=("Segoe UI", 30, "bold"),
             text_color=self.TEXT,
         ).pack(side="left")
-        ctk.CTkFrame(brand_line, width=1, height=32, fg_color=self.BORDER).pack(side="left", padx=22)
+        ctk.CTkFrame(brand_line, width=1, height=34, fg_color=self.BORDER).pack(side="left", padx=22)
         ctk.CTkLabel(
             brand_line,
             text="Preencha seus documentos com agilidade e segurança",
@@ -107,21 +117,22 @@ class DocFillProApp(ctk.CTk):
         ).pack(side="left")
 
         actions = ctk.CTkFrame(header, fg_color="transparent")
-        actions.grid(row=0, column=2, rowspan=2, sticky="e", pady=18)
+        actions.grid(row=0, column=2, rowspan=2, sticky="e", pady=(18, 10))
         for text, command in (
-            ("Tema", self.show_theme_info),
-            ("Ajustes", self.open_settings),
-            ("Sobre", self.show_about),
+            ("◐  Tema", self.show_theme_info),
+            ("⚙  Ajustes", self.open_settings),
+            ("ⓘ  Sobre", self.show_about),
         ):
             ctk.CTkButton(
                 actions,
                 text=text,
-                width=86,
+                width=96,
                 height=34,
                 fg_color="transparent",
                 hover_color=self.CARD,
                 border_width=0,
                 text_color=self.MUTED,
+                font=("Segoe UI", 12),
                 command=command,
             ).pack(side="left", padx=4)
 
@@ -153,7 +164,7 @@ class DocFillProApp(ctk.CTk):
         footer.grid_columnconfigure(1, weight=1)
         footer.grid_propagate(False)
 
-        logo_path = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
+        logo_path = self._asset_path("logo.png")
         try:
             from PIL import Image
 
@@ -164,18 +175,21 @@ class DocFillProApp(ctk.CTk):
 
         ctk.CTkLabel(
             footer,
-            text="DocFill Pro   v1.0.0",
+            text="DocFill Pro    v1.0.0",
             text_color=self.TEXT,
             font=("Segoe UI", 12),
         ).grid(row=0, column=1, sticky="w")
 
+        status = ctk.CTkFrame(footer, fg_color="transparent")
+        status.grid(row=0, column=2, sticky="e", padx=(0, 4))
+        ctk.CTkLabel(status, text="◈", text_color=self.GREEN_NEON, font=("Segoe UI Symbol", 12, "bold")).pack(side="left", padx=(0, 6))
         self.status_label = ctk.CTkLabel(
-            footer,
+            status,
             text="Pronto",
             text_color=self.GREEN_NEON,
             font=("Segoe UI", 13),
         )
-        self.status_label.grid(row=0, column=2, sticky="e", padx=(0, 4))
+        self.status_label.pack(side="left")
 
     def open_settings(self) -> None:
         if self.mapping_window is not None and self.mapping_window.winfo_exists():
@@ -211,9 +225,29 @@ class DocFillProApp(ctk.CTk):
         analysis_card = ctk.CTkFrame(wrapper, fg_color=self.PANEL, corner_radius=12, border_width=1, border_color=self.BORDER)
         analysis_card.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 10))
         analysis_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(analysis_card, text="Análise do Template", font=("Segoe UI", 14, "bold"), text_color=self.GREEN_NEON, anchor="w").grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
-        ctk.CTkButton(analysis_card, text="Analisar Template Atual", fg_color=self.GREEN, hover_color=self.GREEN_HOVER, command=self.analyze_template_section).grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 8))
-        self.analysis_view = ctk.CTkTextbox(analysis_card, fg_color=self.INPUT, text_color=self.TEXT, border_width=1, border_color=self.INPUT_BORDER, font=("Segoe UI", 12), height=150)
+        ctk.CTkLabel(
+            analysis_card,
+            text="Análise do Template",
+            font=("Segoe UI", 14, "bold"),
+            text_color=self.GREEN_NEON,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        ctk.CTkButton(
+            analysis_card,
+            text="Analisar Template Atual",
+            fg_color=self.GREEN,
+            hover_color=self.GREEN_HOVER,
+            command=self.analyze_template_section,
+        ).grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 8))
+        self.analysis_view = ctk.CTkTextbox(
+            analysis_card,
+            fg_color=self.INPUT,
+            text_color=self.TEXT,
+            border_width=1,
+            border_color=self.INPUT_BORDER,
+            font=("Segoe UI", 12),
+            height=150,
+        )
         self.analysis_view.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 14))
         self.analysis_view.configure(state="disabled")
 
@@ -221,7 +255,13 @@ class DocFillProApp(ctk.CTk):
         form_card.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
         form_card.grid_columnconfigure(0, weight=1)
         form_card.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(form_card, text="Adicionar marcador", font=("Segoe UI", 14, "bold"), text_color=self.GREEN_NEON, anchor="w").grid(row=0, column=0, columnspan=2, sticky="ew", padx=14, pady=(12, 6))
+        ctk.CTkLabel(
+            form_card,
+            text="Adicionar marcador",
+            font=("Segoe UI", 14, "bold"),
+            text_color=self.GREEN_NEON,
+            anchor="w",
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", padx=14, pady=(12, 6))
         self.custom_marker = ctk.CTkEntry(form_card, placeholder_text="Ex.: TELEFONE", fg_color=self.INPUT, border_color=self.INPUT_BORDER, text_color=self.TEXT)
         self.custom_marker.grid(row=1, column=0, sticky="ew", padx=(14, 6), pady=(0, 12))
         self.custom_value = ctk.CTkEntry(form_card, placeholder_text="Valor do marcador", fg_color=self.INPUT, border_color=self.INPUT_BORDER, text_color=self.TEXT)
@@ -232,7 +272,13 @@ class DocFillProApp(ctk.CTk):
         list_card.grid(row=2, column=0, sticky="nsew", padx=14, pady=(0, 14))
         list_card.grid_columnconfigure(0, weight=1)
         list_card.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(list_card, text="Marcadores cadastrados", font=("Segoe UI", 14, "bold"), text_color=self.GREEN_NEON, anchor="w").grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        ctk.CTkLabel(
+            list_card,
+            text="Marcadores cadastrados",
+            font=("Segoe UI", 14, "bold"),
+            text_color=self.GREEN_NEON,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
         self.mapping_view = ctk.CTkTextbox(list_card, fg_color=self.INPUT, text_color=self.TEXT, border_width=1, border_color=self.INPUT_BORDER, font=("Segoe UI", 12))
         self.mapping_view.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
         self.mapping_view.configure(state="disabled")
@@ -481,6 +527,21 @@ class DocFillProApp(ctk.CTk):
                 pass
             self._preview_job = None
         self.destroy()
+
+    def _apply_window_icon(self) -> None:
+        try:
+            icon_path = self._asset_path("logo.ico")
+            if icon_path.exists():
+                self.iconbitmap(str(icon_path))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _asset_path(name: str) -> Path:
+        base = getattr(sys, "_MEIPASS", None)
+        if base:
+            return Path(base) / "assets" / name
+        return Path(__file__).resolve().parent.parent / "assets" / name
 
     @staticmethod
     def _sanitize_filename(value: str) -> str:
