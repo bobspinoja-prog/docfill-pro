@@ -3,29 +3,18 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
+from PIL import Image
 
 from services.docx_reader import DOCXReader
 from services.docx_writer import DOCXWriter
 from services.mapping_manager import MappingManager
 from ui.form_panel import FormPanel
 from ui.preview_panel import PreviewPanel
+from ui.theme import COLORS, font, symbol_font
 
 
 class DocFillProApp(ctk.CTk):
     """Aplicativo principal DOCFILL PRO."""
-
-    BG = "#07130D"
-    SURFACE = "#0B1F16"
-    PANEL = "#10291D"
-    CARD = "#132F22"
-    BORDER = "#244B36"
-    GREEN = "#22C55E"
-    GREEN_HOVER = "#16A34A"
-    GREEN_NEON = "#39FF7A"
-    TEXT = "#F8FAFC"
-    MUTED = "#CBD5E1"
-    INPUT = "#07130D"
-    INPUT_BORDER = "#315A43"
 
     def __init__(self, initial_template: str | Path | None = None) -> None:
         super().__init__()
@@ -33,7 +22,7 @@ class DocFillProApp(ctk.CTk):
         self.title("DOCFILL PRO")
         self.geometry("1600x900")
         self.minsize(1300, 800)
-        self.configure(fg_color=self.BG)
+        self.configure(fg_color=COLORS["bg"])
         self._apply_window_icon()
 
         self.template_path: Path | None = None
@@ -41,9 +30,10 @@ class DocFillProApp(ctk.CTk):
         self.reader: DOCXReader | None = None
         self.template_suggestions: dict[str, str] = {}
         self._preview_job: str | None = None
+        self._pulse_job: str | None = None
+        self._pulse_state = False
         self.mapping_manager = MappingManager()
         self.logo_image = None
-        self.footer_logo_image = None
         self.mapping_window = None
         self.analysis_view = None
         self.mapping_view = None
@@ -51,6 +41,7 @@ class DocFillProApp(ctk.CTk):
         self.custom_value = None
 
         self._build_ui()
+        self._pulse_dot()
         if initial_template:
             self.load_template(initial_template, show_errors=False)
         else:
@@ -58,93 +49,124 @@ class DocFillProApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.close_app)
 
     def _build_ui(self) -> None:
-        root = ctk.CTkFrame(self, fg_color=self.BG)
-        root.pack(fill="both", expand=True, padx=16, pady=(0, 10))
+        root = ctk.CTkFrame(self, fg_color=COLORS["bg"], corner_radius=0)
+        root.pack(fill="both", expand=True)
         root.grid_columnconfigure(0, weight=1)
-        root.grid_rowconfigure(1, weight=1)
+        root.grid_rowconfigure(2, weight=1)
 
         self._build_header(root)
+        self._build_status_bar(root)
         self._build_body(root)
         self._build_footer(root)
 
     def _build_header(self, master: ctk.CTkFrame) -> None:
-        header = ctk.CTkFrame(master, fg_color=self.BG, height=92)
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        header.grid_columnconfigure(1, weight=1)
+        header = ctk.CTkFrame(master, fg_color=COLORS["bg"], corner_radius=0, height=56)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_columnconfigure(2, weight=1)
         header.grid_propagate(False)
 
         logo_frame = ctk.CTkFrame(
             header,
-            width=62,
-            height=62,
+            width=42,
+            height=42,
             fg_color="#15803D",
-            corner_radius=31,
+            corner_radius=21,
             border_width=1,
-            border_color="#1FA955",
+            border_color=COLORS["green2"],
         )
-        logo_frame.grid(row=0, column=0, rowspan=2, padx=(0, 16), pady=(19, 11))
+        logo_frame.grid(row=0, column=0, sticky="w", padx=(14, 10), pady=7)
         logo_frame.grid_propagate(False)
 
         logo_path = self._asset_path("logo.png")
         if logo_path.exists():
             try:
-                from PIL import Image
-
-                self.logo_image = ctk.CTkImage(Image.open(logo_path), size=(48, 48))
-                ctk.CTkLabel(logo_frame, image=self.logo_image, text="").place(relx=0.5, rely=0.5, anchor="center")
+                self.logo_image = ctk.CTkImage(Image.open(logo_path), size=(36, 36))
+                ctk.CTkLabel(logo_frame, image=self.logo_image, text="").grid(row=0, column=0, sticky="nsew")
+                logo_frame.grid_columnconfigure(0, weight=1)
+                logo_frame.grid_rowconfigure(0, weight=1)
             except Exception:
-                ctk.CTkLabel(logo_frame, text="DF", font=("Segoe UI", 18, "bold"), text_color=self.TEXT).place(relx=0.5, rely=0.5, anchor="center")
+                ctk.CTkLabel(logo_frame, text="DF", text_color=COLORS["text"], font=font(13, "bold")).grid(row=0, column=0)
         else:
-            ctk.CTkLabel(logo_frame, text="DF", font=("Segoe UI", 18, "bold"), text_color=self.TEXT).place(relx=0.5, rely=0.5, anchor="center")
+            ctk.CTkLabel(logo_frame, text="DF", text_color=COLORS["text"], font=font(13, "bold")).grid(row=0, column=0)
 
-        brand = ctk.CTkFrame(header, fg_color="transparent")
-        brand.grid(row=0, column=1, rowspan=2, sticky="w", pady=(18, 10))
+        brand = ctk.CTkFrame(header, fg_color="transparent", corner_radius=0)
+        brand.grid(row=0, column=1, sticky="w", pady=7)
+        brand.grid_columnconfigure(0, weight=1)
 
-        brand_line = ctk.CTkFrame(brand, fg_color="transparent")
-        brand_line.pack(anchor="w")
         ctk.CTkLabel(
-            brand_line,
+            brand,
             text="DocFill Pro",
-            font=("Segoe UI", 30, "bold"),
-            text_color=self.TEXT,
-        ).pack(side="left")
-        ctk.CTkFrame(brand_line, width=1, height=34, fg_color=self.BORDER).pack(side="left", padx=22)
+            text_color=COLORS["text"],
+            font=font(15, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(
-            brand_line,
+            brand,
             text="Preencha seus documentos com agilidade e segurança",
-            font=("Segoe UI", 13),
-            text_color=self.MUTED,
-        ).pack(side="left")
+            text_color=COLORS["text3"],
+            font=font(10),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(1, 0))
 
-        actions = ctk.CTkFrame(header, fg_color="transparent")
-        actions.grid(row=0, column=2, rowspan=2, sticky="e", pady=(18, 10))
-        for text, command in (
-            ("◐  Tema", self.show_theme_info),
-            ("⚙  Ajustes", self.open_settings),
-            ("ⓘ  Sobre", self.show_about),
-        ):
+        actions = ctk.CTkFrame(header, fg_color="transparent", corner_radius=0)
+        actions.grid(row=0, column=3, sticky="e", padx=(10, 14), pady=12)
+        for col, (text, command) in enumerate((
+            ("Tema", self.show_theme_info),
+            ("Ajustes", self.open_settings),
+            ("Sobre", self.show_about),
+        )):
             ctk.CTkButton(
                 actions,
                 text=text,
-                width=96,
-                height=34,
+                width=72,
+                height=28,
                 fg_color="transparent",
-                hover_color=self.CARD,
-                border_width=0,
-                text_color=self.MUTED,
-                font=("Segoe UI", 12),
+                hover_color=COLORS["bg4"],
+                text_color=COLORS["text2"],
+                border_width=1,
+                border_color=COLORS["border"],
+                corner_radius=6,
+                font=font(10),
                 command=command,
-            ).pack(side="left", padx=4)
+            ).grid(row=0, column=col, padx=(0 if col == 0 else 6, 0))
+
+    def _build_status_bar(self, master: ctk.CTkFrame) -> None:
+        bar = ctk.CTkFrame(master, fg_color=COLORS["bg"], corner_radius=0, height=30)
+        bar.grid(row=1, column=0, sticky="ew")
+        bar.grid_columnconfigure(7, weight=1)
+        bar.grid_rowconfigure(0, weight=1)
+        bar.grid_propagate(False)
+
+        self.status_dot = ctk.CTkLabel(bar, text="●", text_color=COLORS["green"], font=symbol_font(12, "bold"))
+        self.status_dot.grid(row=0, column=0, padx=(16, 6), sticky="ns")
+
+        self.status_label = ctk.CTkLabel(bar, text="Pronto", text_color=COLORS["green4"], font=font(11, "bold"))
+        self.status_label.grid(row=0, column=1, sticky="w")
+
+        self._separator(bar, 2)
+
+        ctk.CTkLabel(bar, text="Template:", text_color=COLORS["text3"], font=font(10, "bold")).grid(row=0, column=3, padx=(12, 4), sticky="w")
+        self.template_status_label = ctk.CTkLabel(bar, text="nenhum", text_color=COLORS["text2"], font=font(10), anchor="w")
+        self.template_status_label.grid(row=0, column=4, sticky="w")
+
+        self._separator(bar, 5)
+
+        ctk.CTkLabel(bar, text="Saída:", text_color=COLORS["text3"], font=font(10, "bold")).grid(row=0, column=6, padx=(12, 4), sticky="w")
+        self.output_status_label = ctk.CTkLabel(bar, text="não definida", text_color=COLORS["text2"], font=font(10), anchor="w")
+        self.output_status_label.grid(row=0, column=7, sticky="w")
 
     def _build_body(self, master: ctk.CTkFrame) -> None:
-        body = ctk.CTkFrame(master, fg_color=self.BG)
-        body.grid(row=1, column=0, sticky="nsew")
-        body.grid_columnconfigure(0, weight=56, minsize=710)
-        body.grid_columnconfigure(1, weight=44, minsize=520)
+        body = ctk.CTkFrame(master, fg_color=COLORS["bg"], corner_radius=0)
+        body.grid(row=2, column=0, sticky="nsew")
+        body.grid_columnconfigure(0, weight=58, minsize=700)
+        body.grid_columnconfigure(1, weight=0)
+        body.grid_columnconfigure(2, weight=42, minsize=500)
         body.grid_rowconfigure(0, weight=1)
 
         self.preview_panel = PreviewPanel(body, on_refresh=self.update_preview)
-        self.preview_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        self.preview_panel.grid(row=0, column=0, sticky="nsew")
+
+        ctk.CTkFrame(body, fg_color=COLORS["border"], width=1, corner_radius=0).grid(row=0, column=1, sticky="ns")
 
         self.form_panel = FormPanel(
             body,
@@ -156,40 +178,28 @@ class DocFillProApp(ctk.CTk):
                 "clear": self.clear_form,
             },
         )
-        self.form_panel.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        self.form_panel.grid(row=0, column=2, sticky="nsew")
 
     def _build_footer(self, master: ctk.CTkFrame) -> None:
-        footer = ctk.CTkFrame(master, fg_color=self.BG, height=34)
-        footer.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        footer = ctk.CTkFrame(master, fg_color=COLORS["bg2"], corner_radius=0, height=26)
+        footer.grid(row=3, column=0, sticky="ew")
         footer.grid_columnconfigure(1, weight=1)
         footer.grid_propagate(False)
 
-        logo_path = self._asset_path("logo.png")
-        try:
-            from PIL import Image
-
-            self.footer_logo_image = ctk.CTkImage(Image.open(logo_path), size=(20, 20))
-            ctk.CTkLabel(footer, image=self.footer_logo_image, text="").grid(row=0, column=0, padx=(0, 8), pady=6)
-        except Exception:
-            ctk.CTkLabel(footer, text="DF", text_color=self.GREEN_NEON, font=("Segoe UI", 11, "bold")).grid(row=0, column=0, padx=(0, 8))
-
         ctk.CTkLabel(
             footer,
-            text="DocFill Pro    v1.0.0",
-            text_color=self.TEXT,
-            font=("Segoe UI", 12),
-        ).grid(row=0, column=1, sticky="w")
+            text="DocFill Pro v1.0.0",
+            text_color=COLORS["text2"],
+            font=font(10),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w", padx=14, pady=4)
 
-        status = ctk.CTkFrame(footer, fg_color="transparent")
-        status.grid(row=0, column=2, sticky="e", padx=(0, 4))
-        ctk.CTkLabel(status, text="◈", text_color=self.GREEN_NEON, font=("Segoe UI Symbol", 12, "bold")).pack(side="left", padx=(0, 6))
-        self.status_label = ctk.CTkLabel(
-            status,
-            text="Pronto",
-            text_color=self.GREEN_NEON,
-            font=("Segoe UI", 13),
-        )
-        self.status_label.pack(side="left")
+        status = ctk.CTkFrame(footer, fg_color="transparent", corner_radius=0)
+        status.grid(row=0, column=2, sticky="e", padx=14, pady=4)
+        self.footer_status_dot = ctk.CTkLabel(status, text="●", text_color=COLORS["green"], font=symbol_font(9))
+        self.footer_status_dot.grid(row=0, column=0, sticky="e", padx=(0, 6))
+        self.footer_status_label = ctk.CTkLabel(status, text="Pronto", text_color=COLORS["green4"], font=font(10, "bold"))
+        self.footer_status_label.grid(row=0, column=1, sticky="e")
 
     def open_settings(self) -> None:
         if self.mapping_window is not None and self.mapping_window.winfo_exists():
@@ -203,7 +213,7 @@ class DocFillProApp(ctk.CTk):
         window.title("DOCFILL PRO - Ajustes e Mapeamento")
         window.geometry("900x700")
         window.minsize(760, 560)
-        window.configure(fg_color=self.BG)
+        window.configure(fg_color=COLORS["bg"])
         window.protocol("WM_DELETE_WINDOW", window.withdraw)
         window.grid_columnconfigure(0, weight=1)
         window.grid_rowconfigure(1, weight=1)
@@ -212,74 +222,42 @@ class DocFillProApp(ctk.CTk):
         ctk.CTkLabel(
             window,
             text="Mapeamento",
-            font=("Segoe UI", 22, "bold"),
-            text_color=self.GREEN_NEON,
+            font=font(22, "bold"),
+            text_color=COLORS["green3"],
             anchor="w",
         ).grid(row=0, column=0, sticky="ew", padx=18, pady=(18, 4))
 
-        wrapper = ctk.CTkFrame(window, fg_color=self.SURFACE, corner_radius=14, border_width=1, border_color=self.BORDER)
+        wrapper = ctk.CTkFrame(window, fg_color=COLORS["bg2"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
         wrapper.grid(row=1, column=0, sticky="nsew", padx=18, pady=18)
         wrapper.grid_columnconfigure(0, weight=1)
         wrapper.grid_rowconfigure(2, weight=1)
 
-        analysis_card = ctk.CTkFrame(wrapper, fg_color=self.PANEL, corner_radius=12, border_width=1, border_color=self.BORDER)
+        analysis_card = ctk.CTkFrame(wrapper, fg_color=COLORS["bg3"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
         analysis_card.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 10))
         analysis_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
-            analysis_card,
-            text="Análise do Template",
-            font=("Segoe UI", 14, "bold"),
-            text_color=self.GREEN_NEON,
-            anchor="w",
-        ).grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
-        ctk.CTkButton(
-            analysis_card,
-            text="Analisar Template Atual",
-            fg_color=self.GREEN,
-            hover_color=self.GREEN_HOVER,
-            command=self.analyze_template_section,
-        ).grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 8))
-        self.analysis_view = ctk.CTkTextbox(
-            analysis_card,
-            fg_color=self.INPUT,
-            text_color=self.TEXT,
-            border_width=1,
-            border_color=self.INPUT_BORDER,
-            font=("Segoe UI", 12),
-            height=150,
-        )
+        ctk.CTkLabel(analysis_card, text="Análise do Template", font=font(14, "bold"), text_color=COLORS["green3"], anchor="w").grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        ctk.CTkButton(analysis_card, text="Analisar Template Atual", fg_color=COLORS["green"], hover_color=COLORS["green2"], command=self.analyze_template_section).grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 8))
+        self.analysis_view = ctk.CTkTextbox(analysis_card, fg_color=COLORS["input"], text_color=COLORS["text"], border_width=1, border_color=COLORS["border3"], font=font(12), height=150)
         self.analysis_view.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 14))
         self.analysis_view.configure(state="disabled")
 
-        form_card = ctk.CTkFrame(wrapper, fg_color=self.PANEL, corner_radius=12, border_width=1, border_color=self.BORDER)
+        form_card = ctk.CTkFrame(wrapper, fg_color=COLORS["bg3"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
         form_card.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
         form_card.grid_columnconfigure(0, weight=1)
         form_card.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(
-            form_card,
-            text="Adicionar marcador",
-            font=("Segoe UI", 14, "bold"),
-            text_color=self.GREEN_NEON,
-            anchor="w",
-        ).grid(row=0, column=0, columnspan=2, sticky="ew", padx=14, pady=(12, 6))
-        self.custom_marker = ctk.CTkEntry(form_card, placeholder_text="Ex.: TELEFONE", fg_color=self.INPUT, border_color=self.INPUT_BORDER, text_color=self.TEXT)
+        ctk.CTkLabel(form_card, text="Adicionar marcador", font=font(14, "bold"), text_color=COLORS["green3"], anchor="w").grid(row=0, column=0, columnspan=2, sticky="ew", padx=14, pady=(12, 6))
+        self.custom_marker = ctk.CTkEntry(form_card, placeholder_text="Ex.: TELEFONE", fg_color=COLORS["input"], border_color=COLORS["border3"], text_color=COLORS["text"])
         self.custom_marker.grid(row=1, column=0, sticky="ew", padx=(14, 6), pady=(0, 12))
-        self.custom_value = ctk.CTkEntry(form_card, placeholder_text="Valor do marcador", fg_color=self.INPUT, border_color=self.INPUT_BORDER, text_color=self.TEXT)
+        self.custom_value = ctk.CTkEntry(form_card, placeholder_text="Valor do marcador", fg_color=COLORS["input"], border_color=COLORS["border3"], text_color=COLORS["text"])
         self.custom_value.grid(row=1, column=1, sticky="ew", padx=(6, 14), pady=(0, 12))
-        ctk.CTkButton(form_card, text="Salvar Marcador", fg_color=self.GREEN, hover_color=self.GREEN_HOVER, command=self.save_mapping).grid(row=2, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 14))
+        ctk.CTkButton(form_card, text="Salvar Marcador", fg_color=COLORS["green"], hover_color=COLORS["green2"], command=self.save_mapping).grid(row=2, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 14))
 
-        list_card = ctk.CTkFrame(wrapper, fg_color=self.PANEL, corner_radius=12, border_width=1, border_color=self.BORDER)
+        list_card = ctk.CTkFrame(wrapper, fg_color=COLORS["bg3"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
         list_card.grid(row=2, column=0, sticky="nsew", padx=14, pady=(0, 14))
         list_card.grid_columnconfigure(0, weight=1)
         list_card.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(
-            list_card,
-            text="Marcadores cadastrados",
-            font=("Segoe UI", 14, "bold"),
-            text_color=self.GREEN_NEON,
-            anchor="w",
-        ).grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
-        self.mapping_view = ctk.CTkTextbox(list_card, fg_color=self.INPUT, text_color=self.TEXT, border_width=1, border_color=self.INPUT_BORDER, font=("Segoe UI", 12))
+        ctk.CTkLabel(list_card, text="Marcadores cadastrados", font=font(14, "bold"), text_color=COLORS["green3"], anchor="w").grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        self.mapping_view = ctk.CTkTextbox(list_card, fg_color=COLORS["input"], text_color=COLORS["text"], border_width=1, border_color=COLORS["border3"], font=font(12))
         self.mapping_view.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
         self.mapping_view.configure(state="disabled")
 
@@ -322,17 +300,18 @@ class DocFillProApp(ctk.CTk):
                 lines.append("  - Nenhuma área especial detectada.")
 
             self._set_textbox(self.analysis_view, "\n".join(lines))
-            self.status_label.configure(text="Análise concluída")
+            self._set_status("Análise concluída")
         except Exception as exc:
             self._set_textbox(self.analysis_view, f"Não foi possível analisar o template:\n{exc}")
-            self.status_label.configure(text="Erro na análise")
+            self._set_status("Erro na análise")
 
     def update_preview(self) -> None:
         if not self.template_path:
             self.preview_panel.set_model_name("Nenhum modelo")
             self.preview_panel.set_marker_count(0)
             self.preview_panel.set_text("Selecione um template .docx para visualizar o documento.")
-            self.status_label.configure(text="Pronto")
+            self._refresh_status_context()
+            self._set_status("Pronto")
             return
 
         try:
@@ -346,11 +325,12 @@ class DocFillProApp(ctk.CTk):
             self.preview_panel.set_model_name(self.template_path.name)
             self.preview_panel.set_marker_count(marker_count)
             self.preview_panel.set_text(text)
-            self.status_label.configure(text="Pronto")
+            self._refresh_status_context()
+            self._set_status("Pronto")
         except Exception as exc:
             self.preview_panel.set_text(f"Não foi possível gerar o preview: {exc}")
             self.preview_panel.set_marker_count(0)
-            self.status_label.configure(text="Erro no preview")
+            self._set_status("Erro no preview")
 
     def select_template(self) -> None:
         file_path = filedialog.askopenfilename(
@@ -368,11 +348,12 @@ class DocFillProApp(ctk.CTk):
         folder = filedialog.askdirectory(title="Selecionar Pasta de Saída")
         if folder:
             self.output_folder = Path(folder)
-            self.status_label.configure(text="Pasta definida")
+            self._refresh_status_context()
+            self._set_status("Pasta definida")
 
     def clear_form(self) -> None:
         self.form_panel.clear()
-        self.status_label.configure(text="Campos limpos")
+        self._set_status("Campos limpos")
 
     def generate_document(self) -> None:
         if not self.template_path:
@@ -393,6 +374,7 @@ class DocFillProApp(ctk.CTk):
                 return
             output_folder = Path(selected_folder)
             self.output_folder = output_folder
+            self._refresh_status_context()
 
         replacements = self._build_replacements()
         comprador = values.get("{{COMPRADOR}}", "").strip()
@@ -403,7 +385,7 @@ class DocFillProApp(ctk.CTk):
             writer = DOCXWriter()
             writer.generate(self.template_path, output_path, replacements)
             messagebox.showinfo("Sucesso", f"Documento gerado com sucesso em:\n{output_path}")
-            self.status_label.configure(text="Documento gerado")
+            self._set_status("Documento gerado")
         except Exception as exc:
             messagebox.showerror("Erro ao gerar", f"Não foi possível gerar o arquivo: {exc}")
 
@@ -435,7 +417,7 @@ class DocFillProApp(ctk.CTk):
         path = Path(file_path)
         if not path.exists():
             message = f"Template não encontrado:\n{path}"
-            self.status_label.configure(text="Template não encontrado")
+            self._set_status("Template não encontrado")
             if show_errors:
                 messagebox.showerror("Erro", message)
             else:
@@ -450,7 +432,8 @@ class DocFillProApp(ctk.CTk):
             self.preview_panel.set_text(validation_error)
             self.preview_panel.set_model_name("Nenhum modelo")
             self.preview_panel.set_marker_count(0)
-            self.status_label.configure(text="Arquivo não suportado")
+            self._refresh_status_context()
+            self._set_status("Arquivo não suportado")
             if show_errors:
                 messagebox.showerror("Arquivo Word não suportado", validation_error)
             return
@@ -465,17 +448,17 @@ class DocFillProApp(ctk.CTk):
             self.analyze_template_section()
 
             if analysis["placeholders"]:
-                self.status_label.configure(text=f"{len(analysis['placeholders'])} marcadores")
+                self._set_status(f"{len(analysis['placeholders'])} marcadores")
             elif self.template_suggestions:
-                self.status_label.configure(text=f"{detected} campos detectados")
+                self._set_status(f"{detected} campos detectados")
             else:
-                self.status_label.configure(text="Template carregado")
+                self._set_status("Template carregado")
         except Exception as exc:
             self.template_suggestions = {}
             self.preview_panel.set_text(f"Não foi possível carregar o template:\n{exc}")
             self.preview_panel.set_model_name("Template inválido")
             self.preview_panel.set_marker_count(0)
-            self.status_label.configure(text="Erro ao carregar")
+            self._set_status("Erro ao carregar")
             if show_errors:
                 messagebox.showerror("Erro ao carregar", f"Não foi possível carregar o template:\n{exc}")
 
@@ -503,6 +486,31 @@ class DocFillProApp(ctk.CTk):
             replacements.update(reader.build_literal_replacements(values))
         return replacements
 
+    def _set_status(self, text: str) -> None:
+        self.status_label.configure(text=text)
+        self.footer_status_label.configure(text=text)
+
+    def _refresh_status_context(self) -> None:
+        template = self.template_path.name if self.template_path else "nenhum"
+        output = self.output_folder.name if self.output_folder else "não definida"
+        if len(template) > 44:
+            template = f"...{template[-41:]}"
+        if len(output) > 38:
+            output = f"...{output[-35:]}"
+        self.template_status_label.configure(text=template)
+        self.output_status_label.configure(text=output)
+
+    def _pulse_dot(self) -> None:
+        self._pulse_state = not self._pulse_state
+        color = COLORS["green4"] if self._pulse_state else COLORS["green2"]
+        self.status_dot.configure(text_color=color)
+        self.footer_status_dot.configure(text_color=color)
+        self._pulse_job = self.after(900, self._pulse_dot)
+
+    @staticmethod
+    def _separator(parent, column: int) -> None:
+        ctk.CTkFrame(parent, fg_color=COLORS["border"], width=1, corner_radius=0).grid(row=0, column=column, sticky="ns", padx=(12, 0), pady=7)
+
     @staticmethod
     def _validate_template_path(path: Path) -> str | None:
         if path.name.startswith("~$"):
@@ -526,6 +534,12 @@ class DocFillProApp(ctk.CTk):
             except Exception:
                 pass
             self._preview_job = None
+        if self._pulse_job is not None:
+            try:
+                self.after_cancel(self._pulse_job)
+            except Exception:
+                pass
+            self._pulse_job = None
         self.destroy()
 
     def _apply_window_icon(self) -> None:
