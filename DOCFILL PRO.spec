@@ -2,7 +2,7 @@
 from pathlib import Path
 
 
-datas = [('assets\\logo.png', 'assets'), ('assets\\logo.ico', 'assets'), ('assets\\app_icon.ico', 'assets')]
+datas = [('assets\\logo.png', 'assets'), ('assets\\logo.ico', 'assets'), ('assets\\app_icon.ico', 'assets'), ('data\\template_semantic_mappings.json', 'data'), ('data\\template_profiles.json', 'data'), ('data\\user_settings.json', 'data'), ('data\\history.json', 'data'), ('data\\user_session.json', 'data')]
 if Path('assets/icons').exists():
     datas.append(('assets\\icons', 'assets\\icons'))
 

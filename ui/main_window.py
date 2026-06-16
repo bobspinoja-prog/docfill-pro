@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -5,10 +6,18 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image
 
+from services.history_manager import HistoryManager
+from services.history_suggestions import HistorySuggestion, HistorySuggestions
 from services.docx_reader import DOCXReader
 from services.docx_writer import DOCXWriter
 from services.mapping_manager import MappingManager
+from services.semantic_replacements import build_safe_semantic_replacements
+from services.structured_logger import StructuredLogger
+from services.template_profile_store import TemplateProfileStore
+from services.template_semantic_analyzer import FIELD_LABELS, SemanticDetection, TemplateSemanticAnalyzer
+from services.user_session_store import UserSessionStore
 from ui.form_panel import FormPanel
+from ui.history_window import HistoryWindow
 from ui.i18n import t
 from ui.preview_panel import PreviewPanel
 from ui.symbol_manager import SymbolManager
@@ -35,22 +44,47 @@ class DocFillProApp(ctk.CTk):
         self.template_path: Path | None = None
         self.output_folder: Path | None = None
         self.reader: DOCXReader | None = None
+        self.template_placeholders: set[str] = set()
         self.template_suggestions: dict[str, str] = {}
+        self.template_semantic_hash: str | None = None
+        self.template_semantic_auto_detections: dict[str, SemanticDetection] = {}
+        self.template_semantic_detections: dict[str, SemanticDetection] = {}
+        self.semantic_generation_warnings: list[str] = []
+        self._state_sync_suspended = False
+        self.last_safe_semantic_result = None
         self._preview_job: str | None = None
+        self._suggestion_job: str | None = None
+        self._autosave_job: str | None = None
         self._pulse_job: str | None = None
         self._splash_job: str | None = None
+        self._last_history_suggestion_signature: tuple[str, str, str, tuple[str, ...]] | None = None
         self._pulse_state = False
         self.mapping_manager = MappingManager()
+        self.semantic_analyzer = TemplateSemanticAnalyzer()
+        self.profile_store = TemplateProfileStore()
+        self.session_store = UserSessionStore()
+        self.history_manager = HistoryManager()
+        self.history_suggestions = HistorySuggestions(self.history_manager, self.session_store, self.semantic_analyzer)
+        self.event_logger = StructuredLogger()
         self.logo_image = None
         self.splash_symbol_image = None
         self.splash_frame = None
         self.mapping_window = None
+        self.history_window = None
         self.about_window = None
         self.analysis_view = None
         self.mapping_view = None
+        self.semantic_rows_frame = None
+        self.semantic_warning_label = None
+        self.profile_summary_view = None
+        self.session_history_view = None
+        self.session_status_label = None
+        self.restore_session_button = None
         self.custom_marker = None
         self.custom_value = None
         self.about_symbol_image = None
+        self._ignored_history_suggestions: set[str] = set()
+        self._visible_history_suggestions: dict[str, HistorySuggestion] = {}
 
         self._build_ui()
         self._show_startup_splash()
@@ -58,7 +92,7 @@ class DocFillProApp(ctk.CTk):
         if initial_template:
             self.load_template(initial_template, show_errors=False)
         else:
-            self.update_preview()
+            self._maybe_restore_saved_session_on_startup()
         self.protocol("WM_DELETE_WINDOW", self.close_app)
 
     def _build_ui(self) -> None:
@@ -122,6 +156,7 @@ class DocFillProApp(ctk.CTk):
         actions = ctk.CTkFrame(header, fg_color="transparent", corner_radius=0)
         actions.grid(row=0, column=3, sticky="e", padx=(10, 14), pady=12)
         for col, (text, command) in enumerate((
+            (t("history"), self.open_history),
             (t("theme"), self.show_theme_info),
             (t("settings"), self.open_settings),
             (t("about"), self.show_about),
@@ -275,13 +310,15 @@ class DocFillProApp(ctk.CTk):
             self.mapping_window.deiconify()
             self.mapping_window.lift()
             self.refresh_mapping_view()
+            self.refresh_template_mapping_view()
+            self.refresh_session_views()
             self.analyze_template_section()
             return
 
         window = ctk.CTkToplevel(self)
         window.title(t("settings_title"))
-        window.geometry("900x700")
-        window.minsize(760, 560)
+        window.geometry("940x840")
+        window.minsize(780, 620)
         window.configure(fg_color=COLORS["bg"])
         window.protocol("WM_DELETE_WINDOW", window.withdraw)
         window.grid_columnconfigure(0, weight=1)
@@ -299,7 +336,7 @@ class DocFillProApp(ctk.CTk):
         wrapper = ctk.CTkFrame(window, fg_color=COLORS["bg2"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
         wrapper.grid(row=1, column=0, sticky="nsew", padx=18, pady=18)
         wrapper.grid_columnconfigure(0, weight=1)
-        wrapper.grid_rowconfigure(2, weight=1)
+        wrapper.grid_rowconfigure(3, weight=1)
 
         analysis_card = ctk.CTkFrame(wrapper, fg_color=COLORS["bg3"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
         analysis_card.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 10))
@@ -310,8 +347,41 @@ class DocFillProApp(ctk.CTk):
         self.analysis_view.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 14))
         self.analysis_view.configure(state="disabled")
 
+        semantic_card = ctk.CTkFrame(wrapper, fg_color=COLORS["bg3"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
+        semantic_card.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
+        semantic_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            semantic_card,
+            text=t("template_mapping_title"),
+            font=font(14, "bold"),
+            text_color=COLORS["green3"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        self.profile_summary_view = ctk.CTkTextbox(
+            semantic_card,
+            fg_color=COLORS["input"],
+            text_color=COLORS["text"],
+            border_width=1,
+            border_color=COLORS["border3"],
+            font=font(11),
+            height=78,
+        )
+        self.profile_summary_view.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
+        self.profile_summary_view.configure(state="disabled")
+        self.semantic_rows_frame = ctk.CTkScrollableFrame(
+            semantic_card,
+            fg_color=COLORS["input"],
+            corner_radius=6,
+            border_width=1,
+            border_color=COLORS["border3"],
+            height=180,
+        )
+        self.semantic_rows_frame.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 14))
+        for column, weight in enumerate((18, 20, 36, 10, 16)):
+            self.semantic_rows_frame.grid_columnconfigure(column, weight=weight)
+
         form_card = ctk.CTkFrame(wrapper, fg_color=COLORS["bg3"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
-        form_card.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
+        form_card.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 10))
         form_card.grid_columnconfigure(0, weight=1)
         form_card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(form_card, text=t("settings_add_marker"), font=font(14, "bold"), text_color=COLORS["green3"], anchor="w").grid(row=0, column=0, columnspan=2, sticky="ew", padx=14, pady=(12, 6))
@@ -322,7 +392,7 @@ class DocFillProApp(ctk.CTk):
         ctk.CTkButton(form_card, text=t("settings_save_marker"), fg_color=COLORS["green"], hover_color=COLORS["green2"], command=self.save_mapping).grid(row=2, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 14))
 
         list_card = ctk.CTkFrame(wrapper, fg_color=COLORS["bg3"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
-        list_card.grid(row=2, column=0, sticky="nsew", padx=14, pady=(0, 14))
+        list_card.grid(row=3, column=0, sticky="nsew", padx=14, pady=(0, 14))
         list_card.grid_columnconfigure(0, weight=1)
         list_card.grid_rowconfigure(1, weight=1)
         ctk.CTkLabel(list_card, text=t("settings_list_title"), font=font(14, "bold"), text_color=COLORS["green3"], anchor="w").grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
@@ -330,8 +400,82 @@ class DocFillProApp(ctk.CTk):
         self.mapping_view.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
         self.mapping_view.configure(state="disabled")
 
+        session_card = ctk.CTkFrame(wrapper, fg_color=COLORS["bg3"], corner_radius=8, border_width=1, border_color=COLORS["border2"])
+        session_card.grid(row=4, column=0, sticky="ew", padx=14, pady=(0, 14))
+        session_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            session_card,
+            text=t("settings_session_title"),
+            font=font(14, "bold"),
+            text_color=COLORS["green3"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        self.session_history_view = ctk.CTkTextbox(
+            session_card,
+            fg_color=COLORS["input"],
+            text_color=COLORS["text"],
+            border_width=1,
+            border_color=COLORS["border3"],
+            font=font(11),
+            height=118,
+        )
+        self.session_history_view.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 8))
+        self.session_history_view.configure(state="disabled")
+        controls = ctk.CTkFrame(session_card, fg_color="transparent", corner_radius=0)
+        controls.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 8))
+        controls.grid_columnconfigure(0, weight=1)
+        controls.grid_columnconfigure(1, weight=1)
+        self.restore_session_button = ctk.CTkButton(
+            controls,
+            text=t("settings_restore_session"),
+            fg_color=COLORS["green"],
+            hover_color=COLORS["green2"],
+            command=self.restore_saved_session,
+        )
+        self.restore_session_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ctk.CTkButton(
+            controls,
+            text=t("settings_refresh_history"),
+            fg_color=COLORS["bg4"],
+            hover_color=COLORS["green2"],
+            text_color=COLORS["text2"],
+            command=self.refresh_session_views,
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        self.session_status_label = ctk.CTkLabel(
+            session_card,
+            text="",
+            text_color=COLORS["text3"],
+            font=font(10),
+            anchor="w",
+            justify="left",
+            wraplength=840,
+        )
+        self.session_status_label.grid(row=3, column=0, sticky="ew", padx=14, pady=(0, 12))
+
         self.refresh_mapping_view()
+        self.refresh_template_mapping_view()
+        self.refresh_session_views()
         self.analyze_template_section()
+
+    def open_history(self) -> None:
+        if self.history_window is not None and self.history_window.winfo_exists():
+            self.history_window.deiconify()
+            self.history_window.lift()
+            self.history_window.refresh()
+            return
+
+        window = HistoryWindow(
+            self,
+            self.history_manager,
+            callbacks={
+                "open_document": self._history_open_document,
+                "open_folder": self._history_open_folder,
+                "reuse_data": self._history_reuse_data,
+                "duplicate_fill": self._history_duplicate_fill,
+            },
+            session_store=self.session_store,
+        )
+        self.history_window = window
 
     def show_theme_info(self) -> None:
         messagebox.showinfo(t("theme"), t("theme_info"))
@@ -385,6 +529,82 @@ class DocFillProApp(ctk.CTk):
             corner_radius=6,
             command=window.withdraw,
         ).grid(row=3, column=0)
+
+    def _history_open_document(self, record: dict[str, str]) -> None:
+        output_file = record.get("output_file", "")
+        if not output_file:
+            return
+        path = Path(output_file)
+        if path.exists():
+            os.startfile(str(path))
+
+    def _history_open_folder(self, record: dict[str, str]) -> None:
+        output_file = record.get("output_file", "")
+        if not output_file:
+            return
+        folder = Path(output_file).parent
+        if folder.exists():
+            os.startfile(str(folder))
+
+    def _history_reuse_data(self, record: dict[str, str]) -> None:
+        fields = record.get("fields", {})
+        if not isinstance(fields, dict) or not fields:
+            messagebox.showinfo(t("history_title"), t("history_no_fields"))
+            return
+        if not messagebox.askyesno(t("history_title"), t("history_reuse_confirm")):
+            return
+        template_path = record.get("template_path", "")
+        if template_path and Path(template_path).exists():
+            self.load_template(template_path, show_errors=False)
+        self.form_panel.set_values({str(key): str(value) for key, value in fields.items()}, only_empty=False)
+        output_folder = record.get("output_folder", "")
+        if output_folder:
+            self.output_folder = Path(output_folder)
+        self._refresh_status_context()
+        self._schedule_autosave_snapshot()
+        self.refresh_session_views()
+        self._set_status("Dados reutilizados")
+
+    def _history_duplicate_fill(self, record: dict[str, str]) -> None:
+        template_path = record.get("template_path", "")
+        fields = record.get("fields", {})
+        if not template_path or not Path(template_path).exists():
+            messagebox.showinfo(t("history_title"), t("history_missing_template"))
+            return
+        if not messagebox.askyesno(t("history_title"), t("history_duplicate_confirm")):
+            return
+        self.load_template(template_path, show_errors=False)
+        if isinstance(fields, dict):
+            self.form_panel.set_values({str(key): str(value) for key, value in fields.items()}, only_empty=False)
+        output_folder = record.get("output_folder", "")
+        if output_folder:
+            self.output_folder = Path(output_folder)
+        self._refresh_status_context()
+        self._schedule_autosave_snapshot()
+        self.refresh_session_views()
+        self._set_status("Preenchimento duplicado")
+
+    def apply_history_suggestion(self, marker: str) -> None:
+        suggestion = self._visible_history_suggestions.get(marker)
+        if suggestion is None:
+            return
+        self.form_panel.set_field_value(marker, suggestion.value, detected=False)
+        self.form_panel.clear_history_suggestion(marker)
+        self._visible_history_suggestions.pop(marker, None)
+        self._last_history_suggestion_signature = None
+        self._schedule_autosave_snapshot()
+        self.refresh_session_views()
+        self._set_status("Sugestão aplicada")
+
+    def ignore_history_suggestion(self, marker: str) -> None:
+        suggestion = self._visible_history_suggestions.get(marker)
+        if suggestion is None:
+            return
+        self._ignored_history_suggestions.add(suggestion.key)
+        self.form_panel.clear_history_suggestion(marker)
+        self._visible_history_suggestions.pop(marker, None)
+        self._last_history_suggestion_signature = None
+        self._set_status("Sugestão ignorada")
 
     def analyze_template_section(self) -> None:
         if self.analysis_view is None:
@@ -464,11 +684,23 @@ class DocFillProApp(ctk.CTk):
         folder = filedialog.askdirectory(title="Selecionar Pasta de Saída")
         if folder:
             self.output_folder = Path(folder)
+            self.session_store.set_last_output_folder(self.output_folder)
+            self.event_logger.log(
+                "output_selected",
+                message="Pasta de saída definida",
+                output_folder=str(self.output_folder),
+            )
+            self._schedule_autosave_snapshot()
             self._refresh_status_context()
             self._set_status("Pasta definida")
+            self.refresh_session_views()
 
     def clear_form(self) -> None:
         self.form_panel.clear()
+        self.form_panel.clear_history_suggestions()
+        self._visible_history_suggestions.clear()
+        self._last_history_suggestion_signature = None
+        self._schedule_autosave_snapshot()
         self._set_status("Campos limpos")
 
     def generate_document(self) -> None:
@@ -493,6 +725,7 @@ class DocFillProApp(ctk.CTk):
             self._refresh_status_context()
 
         replacements = self._build_replacements()
+        self.refresh_template_mapping_view()
         comprador = values.get("{{COMPRADOR}}", "").strip()
         sanitized_name = self._sanitize_filename(comprador)
         output_path = self._next_available_path(Path(output_folder) / f"DECLARACAO - {sanitized_name}.docx")
@@ -501,8 +734,79 @@ class DocFillProApp(ctk.CTk):
             writer = DOCXWriter()
             writer.generate(self.template_path, output_path, replacements)
             messagebox.showinfo("Sucesso", f"Documento gerado com sucesso em:\n{output_path}")
-            self._set_status("Documento gerado")
+            self._record_template_profile()
+            self._record_template_usage()
+            try:
+                self.history_manager.record_document(
+                    template_name=self.template_path.name,
+                    template_hash=self.template_semantic_hash or "",
+                    output_file=output_path,
+                    document_name=output_path.name,
+                    fields=values,
+                    detected_fields={
+                        marker: detection.to_dict()
+                        for marker, detection in self.template_semantic_detections.items()
+                        if detection.value
+                    },
+                    profile_used=self.template_semantic_hash or self.template_path.name,
+                    template_path=self.template_path,
+                    output_folder=output_folder,
+                )
+            except Exception as exc:
+                self.event_logger.log(
+                    "history_record_error",
+                    level="warning",
+                    message="Falha ao registrar histórico",
+                    template_path=str(self.template_path),
+                    output_path=str(output_path),
+                    error=str(exc),
+                )
+            if self.template_semantic_hash:
+                self.session_store.record_export(self.template_semantic_hash, self.template_path.name, output_path)
+                self.profile_store.record_export(self.template_semantic_hash, self.template_path.name, output_path)
+            self.event_logger.log(
+                "document_generated",
+                message="Documento gerado",
+                template_path=str(self.template_path),
+                template_hash=self.template_semantic_hash,
+                output_path=str(output_path),
+                safe_replacements=list(replacements.keys()),
+                warnings=list(self.semantic_generation_warnings),
+            )
+            if self.last_safe_semantic_result and self.last_safe_semantic_result.blocked_replacements:
+                self.event_logger.log(
+                    "semantic_replacements_blocked",
+                    message="Substituições semânticas bloqueadas por segurança",
+                    template_path=str(self.template_path),
+                    template_hash=self.template_semantic_hash,
+                    blocked=[item.to_dict() for item in self.last_safe_semantic_result.blocked_replacements],
+                    warnings=list(self.last_safe_semantic_result.warnings),
+                )
+            try:
+                self._save_autosave_snapshot()
+            except Exception as exc:
+                self.event_logger.log(
+                    "autosave_save_error",
+                    level="warning",
+                    message="Falha ao salvar autosave",
+                    template_path=str(self.template_path),
+                    output_path=str(output_path),
+                    error=str(exc),
+                )
+            self.refresh_session_views()
+            if self.semantic_generation_warnings:
+                self._set_status("Revisão necessária")
+            else:
+                self._set_status("Documento gerado")
         except Exception as exc:
+            self.event_logger.log(
+                "document_generation_error",
+                level="error",
+                message="Falha ao gerar documento",
+                template_path=str(self.template_path),
+                output_path=str(output_path),
+                error=str(exc),
+            )
             messagebox.showerror("Erro ao gerar", f"Não foi possível gerar o arquivo: {exc}")
 
     def save_mapping(self) -> None:
@@ -529,9 +833,407 @@ class DocFillProApp(ctk.CTk):
         lines = ["Nenhum marcador adicional cadastrado."] if not data else [f"{key} = {value}" for key, value in sorted(data.items())]
         self._set_textbox(self.mapping_view, "\n".join(lines))
 
+    @staticmethod
+    def _ellipsize(value: str, limit: int) -> str:
+        text = " ".join((value or "").split())
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 3)].rstrip() + "..."
+
+    @staticmethod
+    def _semantic_source_text(detection: SemanticDetection | None) -> str:
+        if detection is None:
+            return "-"
+        parts = [part for part in (detection.source, detection.snippet) if part]
+        return " | ".join(parts) if parts else "-"
+
+    def _refresh_template_profile_summary(self) -> None:
+        if self.profile_summary_view is None:
+            return
+        if not self.template_semantic_hash or not self.template_path:
+            self._set_textbox(self.profile_summary_view, t("settings_profile_empty"))
+            return
+
+        summary = self.profile_store.summarize(self.template_semantic_hash)
+        learned_fields = summary.get("learned_fields", [])
+        corrections = summary.get("corrections", [])
+        history = summary.get("history", [])
+        lines = [
+            f"{t('settings_profile_template')}: {summary.get('template_name') or self.template_path.name}",
+            f"{t('settings_profile_hash')}: {summary.get('hash', self.template_semantic_hash)[:12]}...",
+            f"{t('settings_profile_usage')}: {summary.get('usage_count', 0)}",
+            f"{t('settings_profile_fields')}: {len(learned_fields)}",
+            f"{t('settings_profile_corrections')}: {len(corrections)}",
+        ]
+        if learned_fields:
+            labels = [FIELD_LABELS.get(field, field) for field in learned_fields[:6]]
+            lines.append(f"{t('settings_profile_learned')}: {', '.join(labels)}")
+        if history:
+            lines.append(f"{t('settings_profile_last_event')}: {history[-1].get('event', '-')}")
+        self._set_textbox(self.profile_summary_view, "\n".join(lines))
+
+    def refresh_session_views(self) -> None:
+        if self.session_history_view is None and self.session_status_label is None and self.restore_session_button is None:
+            return
+
+        settings = self.session_store.load()
+        recent_templates = self.session_store.recent_templates()
+        recent_documents = self.session_store.recent_documents()
+        autosave = settings.get("autosave") if isinstance(settings, dict) else None
+
+        history_lines = [t("settings_recent_templates")]
+        if recent_templates:
+            for item in recent_templates[:5]:
+                stamp = item.get("updated_at", "") or item.get("last_used_at", "")
+                history_lines.append(f"- {item.get('template_name', '-')}" + (f" | {stamp}" if stamp else ""))
+        else:
+            history_lines.append(f"- {t('settings_history_empty')}")
+
+        history_lines.append("")
+        history_lines.append(t("settings_recent_documents"))
+        if recent_documents:
+            for item in recent_documents[:5]:
+                stamp = item.get("updated_at", "")
+                output_name = Path(str(item.get("output_file", "-"))).name
+                history_lines.append(f"- {output_name}" + (f" | {stamp}" if stamp else ""))
+        else:
+            history_lines.append(f"- {t('settings_history_empty')}")
+
+        history_lines.append("")
+        if autosave:
+            history_lines.append(t("settings_autosave_title"))
+            history_lines.append(f"- {autosave.get('template_name') or '-'}")
+            if autosave.get("updated_at"):
+                history_lines.append(f"- {t('settings_last_saved')}: {autosave['updated_at']}")
+        else:
+            history_lines.append(t("settings_autosave_empty"))
+
+        self._set_textbox(self.session_history_view, "\n".join(history_lines))
+
+        if self.session_status_label is not None:
+            log_path = self.event_logger.base_dir
+            text = f"{t('settings_logs_path')}: {log_path}"
+            if autosave and autosave.get("template_path"):
+                text += f"\n{t('settings_autosave_path')}: {autosave.get('template_path')}"
+            last_output = settings.get("last_output_folder", "")
+            if last_output:
+                text += f"\n{t('settings_last_folder')}: {last_output}"
+            self.session_status_label.configure(text=text)
+
+        if self.restore_session_button is not None:
+            self.restore_session_button.configure(state="normal" if autosave else "disabled")
+
+    def _record_template_profile(self) -> None:
+        if not self.template_path or not self.template_semantic_hash:
+            return
+        self.profile_store.update_profile(
+            self.template_semantic_hash,
+            self.template_path.name,
+            detections=self.template_semantic_detections,
+            placeholders=sorted(self.template_placeholders),
+            required_fields=set(self.form_panel.REQUIRED_MARKERS),
+            manual_values=self.form_panel.get_values(),
+        )
+
+    def _record_template_usage(self) -> None:
+        if not self.template_path or not self.template_semantic_hash:
+            return
+        self.session_store.set_last_template(
+            self.template_path,
+            self.template_path.name,
+            self.template_semantic_hash,
+            self.form_panel.get_values(),
+        )
+
+    def _schedule_autosave_snapshot(self) -> None:
+        if self._autosave_job is not None:
+            try:
+                self.after_cancel(self._autosave_job)
+            except Exception:
+                pass
+        self._autosave_job = self.after(2000, self._run_autosave_snapshot)
+
+    def _run_autosave_snapshot(self) -> None:
+        self._autosave_job = None
+        try:
+            self._save_autosave_snapshot()
+        except Exception as exc:
+            self.event_logger.log(
+                "autosave_save_error",
+                level="warning",
+                message="Falha ao salvar autosave",
+                template_path=str(self.template_path) if self.template_path else "",
+                error=str(exc),
+            )
+
+    def _save_autosave_snapshot(self) -> None:
+        if self._state_sync_suspended:
+            return
+        if self.template_path is None:
+            return
+        values = self.form_panel.get_values()
+        detected_fields = {
+            marker: detection.to_dict()
+            for marker, detection in self.template_semantic_detections.items()
+            if detection.value
+        }
+        self.session_store.save_autosave(
+            self.template_path,
+            self.template_path.name,
+            self.template_semantic_hash,
+            self.output_folder,
+            values,
+            current_view="main",
+            detected_fields=detected_fields,
+        )
+        self.session_store.set_last_template(
+            self.template_path,
+            self.template_path.name,
+            self.template_semantic_hash or "",
+            values,
+        )
+        self.event_logger.log(
+            "autosave_saved",
+            message="Estado salvo automaticamente",
+            template_path=str(self.template_path),
+            template_hash=self.template_semantic_hash,
+            output_folder=str(self.output_folder) if self.output_folder else "",
+        )
+
+    def _maybe_restore_saved_session_on_startup(self) -> None:
+        autosave = self.session_store.load_autosave()
+        if not autosave:
+            self.update_preview()
+            return
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            self.update_preview()
+            return
+        if messagebox.askyesno(t("history_title"), t("restore_session_prompt")):
+            if not self._restore_saved_session():
+                self.update_preview()
+            return
+        self.update_preview()
+
+    def restore_saved_session(self) -> None:
+        if not self._restore_saved_session():
+            messagebox.showinfo(t("settings_session_title"), t("settings_restore_empty"))
+
+    def _restore_saved_session(self) -> bool:
+        autosave = self.session_store.load_autosave()
+        if not autosave:
+            return False
+        template_path_text = str(autosave.get("template_path", "")).strip()
+        if not template_path_text:
+            return False
+        template_path = Path(template_path_text)
+        if not template_path.exists():
+            self.event_logger.log(
+                "autosave_restore_failed",
+                level="error",
+                message="Template salvo no autosave não foi encontrado",
+                template_path=template_path_text,
+            )
+            return False
+
+        self.load_template(template_path, show_errors=False)
+        values = autosave.get("values", {})
+        if isinstance(values, dict):
+            self.form_panel.set_values({str(key): str(value) for key, value in values.items()}, only_empty=False)
+        output_folder = autosave.get("output_folder", "")
+        if output_folder:
+            self.output_folder = Path(str(output_folder))
+            self._refresh_status_context()
+        self._schedule_autosave_snapshot()
+        self.update_preview()
+        self.refresh_session_views()
+        self.event_logger.log(
+            "autosave_restored",
+            message="Sessão restaurada",
+            template_path=str(template_path),
+            template_hash=autosave.get("template_hash", ""),
+        )
+        self._set_status("Sessão restaurada")
+        return True
+
+    def refresh_template_mapping_view(self) -> None:
+        if self.semantic_rows_frame is None:
+            return
+        for child in self.semantic_rows_frame.winfo_children():
+            child.destroy()
+
+        if self.semantic_warning_label is not None:
+            self.semantic_warning_label.destroy()
+            self.semantic_warning_label = None
+
+        self._refresh_template_profile_summary()
+
+        if not self.template_path or not self.template_semantic_hash:
+            ctk.CTkLabel(
+                self.semantic_rows_frame,
+                text=t("template_mapping_empty"),
+                text_color=COLORS["text3"],
+                font=font(11),
+                anchor="w",
+            ).grid(row=0, column=0, columnspan=5, sticky="ew", padx=10, pady=10)
+            return
+
+        headers = (
+            t("template_mapping_field"),
+            t("template_mapping_value"),
+            t("template_mapping_source"),
+            t("template_mapping_confidence"),
+            t("template_mapping_actions"),
+        )
+        for column, header in enumerate(headers):
+            ctk.CTkLabel(
+                self.semantic_rows_frame,
+                text=header,
+                text_color=COLORS["green4"],
+                font=font(10, "bold"),
+                anchor="w",
+            ).grid(row=0, column=column, sticky="ew", padx=8, pady=(8, 4))
+
+        for row, (marker, label) in enumerate(FIELD_LABELS.items(), start=1):
+            detection = self.template_semantic_detections.get(marker)
+            value = detection.value if detection and detection.value else "-"
+            source = self._semantic_source_text(detection)
+            confidence = f"{int(round(detection.confidence * 100))}%" if detection and detection.value else "-"
+
+            ctk.CTkLabel(
+                self.semantic_rows_frame,
+                text=label,
+                text_color=COLORS["text"],
+                font=font(10, "bold"),
+                anchor="w",
+            ).grid(row=row, column=0, sticky="ew", padx=8, pady=4)
+            ctk.CTkLabel(
+                self.semantic_rows_frame,
+                text=self._ellipsize(value, 30),
+                text_color=COLORS["text2"],
+                font=font(10),
+                anchor="w",
+            ).grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+            ctk.CTkLabel(
+                self.semantic_rows_frame,
+                text=self._ellipsize(source, 70),
+                text_color=COLORS["text3"],
+                font=font(9),
+                anchor="w",
+                wraplength=300,
+            ).grid(row=row, column=2, sticky="ew", padx=8, pady=4)
+            ctk.CTkLabel(
+                self.semantic_rows_frame,
+                text=confidence,
+                text_color=COLORS["green4"] if confidence != "-" else COLORS["text3"],
+                font=font(10, "bold"),
+                anchor="w",
+            ).grid(row=row, column=3, sticky="ew", padx=8, pady=4)
+
+            actions = ctk.CTkFrame(self.semantic_rows_frame, fg_color="transparent", corner_radius=0)
+            actions.grid(row=row, column=4, sticky="ew", padx=8, pady=3)
+            actions.grid_columnconfigure(0, weight=1)
+            actions.grid_columnconfigure(1, weight=1)
+            has_value = bool(detection and detection.value)
+            ctk.CTkButton(
+                actions,
+                text=t("template_mapping_accept"),
+                height=24,
+                fg_color=COLORS["green2"],
+                hover_color=COLORS["green"],
+                text_color=COLORS["text"],
+                font=font(9, "bold"),
+                corner_radius=5,
+                state="normal" if has_value else "disabled",
+                command=lambda _marker=marker: self.accept_template_detection(_marker),
+            ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+            ctk.CTkButton(
+                actions,
+                text=t("template_mapping_correct"),
+                height=24,
+                fg_color=COLORS["bg4"],
+                hover_color=COLORS["green2"],
+                text_color=COLORS["text2"],
+                font=font(9, "bold"),
+                corner_radius=5,
+                command=lambda _marker=marker: self.correct_template_detection(_marker),
+            ).grid(row=0, column=1, sticky="ew")
+
+        if self.semantic_generation_warnings:
+            self.semantic_warning_label = ctk.CTkLabel(
+                self.semantic_rows_frame,
+                text="\n".join(self.semantic_generation_warnings[:3]),
+                text_color=COLORS["red"],
+                font=font(10, "bold"),
+                anchor="w",
+                justify="left",
+                wraplength=760,
+            )
+            self.semantic_warning_label.grid(row=len(FIELD_LABELS) + 1, column=0, columnspan=5, sticky="ew", padx=10, pady=(10, 10))
+
+    def accept_template_detection(self, marker: str) -> None:
+        if not self.template_semantic_hash:
+            return
+        detection = self.template_semantic_detections.get(marker)
+        if not detection or not detection.value:
+            messagebox.showinfo(t("template_mapping_title"), t("template_mapping_no_value"))
+            return
+        self.form_panel.set_field_value(marker, detection.value, detected=True)
+        self.semantic_analyzer.accept_detection(self.template_semantic_hash, detection)
+        self.profile_store.record_correction(self.template_semantic_hash, self.template_path.name if self.template_path else "", detection, action="accepted_detection")
+        self.event_logger.log(
+            "template_detection_accepted",
+            message="Detecção aceita",
+            template_hash=self.template_semantic_hash,
+            field=marker,
+            value=detection.value,
+            confidence=detection.confidence,
+        )
+        self._schedule_autosave_snapshot()
+        self.refresh_template_mapping_view()
+        self.refresh_session_views()
+        self.update_preview()
+        self._set_status("Mapeamento aceito")
+
+    def correct_template_detection(self, marker: str) -> None:
+        if not self.template_semantic_hash:
+            return
+        value = self.form_panel.get_values().get(marker, "").strip()
+        if not value:
+            messagebox.showinfo(t("template_mapping_title"), "Preencha o campo na lateral antes de corrigir o mapeamento.")
+            return
+        detection = self.semantic_analyzer.save_manual_value(self.template_semantic_hash, marker, value)
+        self.template_semantic_detections[marker] = detection
+        self.profile_store.record_correction(self.template_semantic_hash, self.template_path.name if self.template_path else "", detection, action="manual_correction")
+        self.event_logger.log(
+            "template_detection_corrected",
+            message="Detecção corrigida manualmente",
+            template_hash=self.template_semantic_hash,
+            field=marker,
+            value=value,
+        )
+        self.form_panel.clear_detected_indicator(marker)
+        self._schedule_autosave_snapshot()
+        self.refresh_template_mapping_view()
+        self.refresh_session_views()
+        self.update_preview()
+        self._set_status("Mapeamento corrigido")
+
+    def _reset_template_semantics(self) -> None:
+        self.template_semantic_hash = None
+        self.template_placeholders = set()
+        self.template_semantic_auto_detections = {}
+        self.template_semantic_detections = {}
+        self.semantic_generation_warnings = []
+        self.last_safe_semantic_result = None
+        self._visible_history_suggestions.clear()
+        self._last_history_suggestion_signature = None
+        self.form_panel.clear_history_suggestions()
+        self.refresh_template_mapping_view()
+
     def load_template(self, file_path: str | Path, show_errors: bool = True) -> None:
         path = Path(file_path)
         if not path.exists():
+            self._reset_template_semantics()
             message = f"Template não encontrado:\n{path}"
             self._set_status("Template não encontrado")
             if show_errors:
@@ -544,7 +1246,9 @@ class DocFillProApp(ctk.CTk):
         if validation_error:
             self.template_path = None
             self.reader = None
+            self.template_placeholders = set()
             self.template_suggestions = {}
+            self._reset_template_semantics()
             self.preview_panel.set_text(validation_error)
             self.preview_panel.set_model_name("Nenhum modelo")
             self.preview_panel.set_marker_count(0)
@@ -557,13 +1261,57 @@ class DocFillProApp(ctk.CTk):
         self.template_path = path
         self.reader = DOCXReader(path)
         try:
+            self._state_sync_suspended = True
             self.preview_panel.set_loading(t("loading_template"))
             self.update_idletasks()
             analysis = self.reader.analyze_template()
-            self.template_suggestions = self.reader.suggest_values()
-            detected = self.form_panel.set_values(self.template_suggestions, only_empty=True)
+            self.template_placeholders = {
+                marker
+                for marker in analysis.get("placeholders", [])
+                if isinstance(marker, str) and marker.startswith("{{") and marker.endswith("}}")
+            }
+            self.template_semantic_hash = self.semantic_analyzer.template_hash(path)
+            self.template_semantic_detections = self.semantic_analyzer.analyze(path)
+            saved_profile = self.semantic_analyzer.load_template_mapping(self.template_semantic_hash)
+            auto_saved = saved_profile.get("auto_detections", {}) if isinstance(saved_profile, dict) else {}
+            self.template_semantic_auto_detections = {
+                field: SemanticDetection.from_dict(data)
+                for field, data in auto_saved.items()
+                if isinstance(data, dict)
+            }
+            if not self.template_semantic_auto_detections:
+                self.template_semantic_auto_detections = dict(self.template_semantic_detections)
+            self.semantic_generation_warnings = []
+            semantic_suggestions = self.semantic_analyzer.suggestion_values(self.template_semantic_detections)
+            legacy_suggestions = self.reader.suggest_values()
+            self.template_suggestions = dict(semantic_suggestions)
+            for marker, value in legacy_suggestions.items():
+                self.template_suggestions.setdefault(marker, value)
+
+            detected = self.form_panel.set_detected_values(self.template_semantic_detections, only_empty=True)
+            legacy_only = {
+                marker: value
+                for marker, value in legacy_suggestions.items()
+                if marker not in semantic_suggestions
+            }
+            detected += self.form_panel.set_values(legacy_only, only_empty=True)
             self.update_preview()
             self.analyze_template_section()
+            self.refresh_template_mapping_view()
+            self._state_sync_suspended = False
+            self._record_template_profile()
+            self._record_template_usage()
+            self._schedule_autosave_snapshot()
+            self._schedule_history_suggestions_update()
+            self.refresh_session_views()
+            self.event_logger.log(
+                "template_loaded",
+                message="Template carregado",
+                template_path=str(self.template_path),
+                template_hash=self.template_semantic_hash,
+                placeholders=len(self.template_placeholders),
+                detected_fields=len(self.template_suggestions),
+            )
 
             if analysis["placeholders"]:
                 self._set_status(f"{len(analysis['placeholders'])} marcadores")
@@ -573,21 +1321,82 @@ class DocFillProApp(ctk.CTk):
                 self._set_status("Template carregado")
         except Exception as exc:
             self.template_suggestions = {}
+            self._reset_template_semantics()
             self.preview_panel.set_text(f"Não foi possível carregar o template:\n{exc}")
             self.preview_panel.set_model_name("Template inválido")
             self.preview_panel.set_marker_count(0)
             self._set_status("Erro ao carregar")
+            self.event_logger.log(
+                "template_load_error",
+                level="error",
+                message="Falha ao carregar template",
+                template_path=str(path),
+                error=str(exc),
+            )
             if show_errors:
                 messagebox.showerror("Erro ao carregar", f"Não foi possível carregar o template:\n{exc}")
+        finally:
+            self._state_sync_suspended = False
 
     def request_preview_update(self) -> None:
+        if self._state_sync_suspended:
+            return
         if self._preview_job is not None:
             self.after_cancel(self._preview_job)
         self._preview_job = self.after(250, self._run_scheduled_preview)
+        self._schedule_autosave_snapshot()
+        self._schedule_history_suggestions_update()
 
     def _run_scheduled_preview(self) -> None:
         self._preview_job = None
         self.update_preview()
+
+    def _schedule_history_suggestions_update(self) -> None:
+        if self._suggestion_job is not None:
+            try:
+                self.after_cancel(self._suggestion_job)
+            except Exception:
+                pass
+        self._suggestion_job = self.after(250, self._run_history_suggestions_update)
+
+    def _run_history_suggestions_update(self) -> None:
+        self._suggestion_job = None
+        self._refresh_history_suggestions()
+
+    def _refresh_history_suggestions(self) -> None:
+        if self.template_path is None:
+            self.form_panel.clear_history_suggestions()
+            self._visible_history_suggestions.clear()
+            self._last_history_suggestion_signature = None
+            return
+
+        current_values = self.form_panel.get_values()
+        signature = (
+            self.template_semantic_hash or "",
+            current_values.get("{{COMPRADOR}}", "").strip(),
+            current_values.get("{{VENDEDOR}}", "").strip(),
+            tuple(sorted(self._ignored_history_suggestions)),
+        )
+        if signature == self._last_history_suggestion_signature:
+            return
+        suggestions = self.history_suggestions.build_suggestions(
+            current_values,
+            template_hash=self.template_semantic_hash or "",
+            ignored_keys=self._ignored_history_suggestions,
+        )
+        self._visible_history_suggestions = suggestions
+        self._last_history_suggestion_signature = signature
+        visible_markers = set(suggestions)
+        for marker, suggestion in suggestions.items():
+            self.form_panel.set_history_suggestion(
+                marker,
+                suggestion,
+                apply_command=lambda _marker=marker: self.apply_history_suggestion(_marker),
+                ignore_command=lambda _marker=marker: self.ignore_history_suggestion(_marker),
+            )
+        for marker in list(self.form_panel.suggestion_frames):
+            if marker not in visible_markers:
+                self.form_panel.clear_history_suggestion(marker)
 
     def _get_reader(self) -> DOCXReader | None:
         if self.template_path is None:
@@ -601,8 +1410,42 @@ class DocFillProApp(ctk.CTk):
         replacements = self.mapping_manager.build_replacements(values)
         reader = self._get_reader()
         if reader is not None:
-            replacements.update(reader.build_literal_replacements(values))
+            document_text = reader.extract_text({})
+            semantic_sources = self._build_semantic_source_map()
+            placeholder_replacements = {
+                marker: values.get(marker, "")
+                for marker in self.template_placeholders
+                if marker in values
+            }
+            safe_result = build_safe_semantic_replacements(
+                semantic_sources,
+                values,
+                placeholder_replacements,
+                document_text,
+            )
+            self.last_safe_semantic_result = safe_result
+            replacements.update(safe_result.safe_replacements)
+            self.semantic_generation_warnings = safe_result.warnings
+        else:
+            self.last_safe_semantic_result = None
+            self.semantic_generation_warnings = []
         return replacements
+
+    def _build_semantic_source_map(self) -> dict[str, SemanticDetection]:
+        semantic_sources: dict[str, SemanticDetection] = dict(self.template_semantic_auto_detections or self.template_semantic_detections)
+        reader = self._get_reader()
+        if reader is not None:
+            for marker, value in reader.suggest_values().items():
+                if marker in semantic_sources:
+                    continue
+                semantic_sources[marker] = SemanticDetection(
+                    field=marker,
+                    value=value,
+                    confidence=0.92,
+                    source="legacy: reader.suggest_values",
+                    snippet=value,
+                )
+        return semantic_sources
 
     def _set_status(self, text: str) -> None:
         self.status_label.configure(text=text)
@@ -646,12 +1489,35 @@ class DocFillProApp(ctk.CTk):
         return None
 
     def close_app(self) -> None:
+        try:
+            self._save_autosave_snapshot()
+        except Exception as exc:
+            self.event_logger.log(
+                "autosave_save_error",
+                level="warning",
+                message="Falha ao salvar autosave ao encerrar",
+                template_path=str(self.template_path) if self.template_path else "",
+                error=str(exc),
+            )
+        self.event_logger.log(
+            "application_closed",
+            message="Aplicação encerrada",
+            template_path=str(self.template_path) if self.template_path else "",
+            template_hash=self.template_semantic_hash,
+            output_folder=str(self.output_folder) if self.output_folder else "",
+        )
         if self._preview_job is not None:
             try:
                 self.after_cancel(self._preview_job)
             except Exception:
                 pass
             self._preview_job = None
+        if self._suggestion_job is not None:
+            try:
+                self.after_cancel(self._suggestion_job)
+            except Exception:
+                pass
+            self._suggestion_job = None
         if self._pulse_job is not None:
             try:
                 self.after_cancel(self._pulse_job)
@@ -664,6 +1530,12 @@ class DocFillProApp(ctk.CTk):
             except Exception:
                 pass
             self._splash_job = None
+        if self._autosave_job is not None:
+            try:
+                self.after_cancel(self._autosave_job)
+            except Exception:
+                pass
+            self._autosave_job = None
         if self.splash_frame is not None:
             self.splash_frame.destroy()
             self.splash_frame = None

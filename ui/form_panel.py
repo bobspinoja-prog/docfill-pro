@@ -2,6 +2,7 @@ from datetime import date
 
 import customtkinter as ctk
 
+from services.history_suggestions import HistorySuggestion
 from ui.i18n import t
 from ui.symbol_manager import SymbolManager
 from ui.theme import CARD_STYLE, COLORS, FIELD_STYLE, font, symbol_font
@@ -82,6 +83,12 @@ class FormPanel(ctk.CTkFrame):
         self.callbacks = callbacks
         self.entries: dict[str, ctk.CTkEntry] = {}
         self.error_labels: dict[str, ctk.CTkLabel] = {}
+        self.detection_labels: dict[str, ctk.CTkLabel] = {}
+        self.suggestion_frames: dict[str, ctk.CTkFrame] = {}
+        self.suggestion_labels: dict[str, ctk.CTkLabel] = {}
+        self.suggestion_apply_buttons: dict[str, ctk.CTkButton] = {}
+        self.suggestion_ignore_buttons: dict[str, ctk.CTkButton] = {}
+        self.auto_detected_markers: set[str] = set()
         self.sidebar_symbol_image = SymbolManager.get_symbol("sidebar", size=28)
 
         self.grid_columnconfigure(0, weight=1)
@@ -329,6 +336,64 @@ class FormPanel(ctk.CTkFrame):
         error.grid(row=2, column=0, sticky="ew", pady=(2, 0))
         self.error_labels[marker] = error
 
+        detection = ctk.CTkLabel(
+            field,
+            text="",
+            text_color=COLORS["green4"],
+            font=font(9),
+            anchor="w",
+        )
+        detection.grid(row=3, column=0, sticky="ew", pady=(1, 0))
+        self.detection_labels[marker] = detection
+
+        suggestion = ctk.CTkFrame(field, fg_color="transparent", corner_radius=0)
+        suggestion.grid(row=4, column=0, sticky="ew", pady=(2, 0))
+        suggestion.grid_columnconfigure(0, weight=1)
+        suggestion.grid_columnconfigure(1, weight=0)
+        suggestion.grid_columnconfigure(2, weight=0)
+        suggestion.grid_remove()
+        self.suggestion_frames[marker] = suggestion
+
+        suggestion_label = ctk.CTkLabel(
+            suggestion,
+            text="",
+            text_color=COLORS["text3"],
+            font=font(9),
+            anchor="w",
+            justify="left",
+            wraplength=280,
+        )
+        suggestion_label.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.suggestion_labels[marker] = suggestion_label
+
+        apply_button = ctk.CTkButton(
+            suggestion,
+            text=t("history_suggestion_apply"),
+            width=66,
+            height=22,
+            fg_color=COLORS["green2"],
+            hover_color=COLORS["green"],
+            text_color=COLORS["text"],
+            font=font(9, "bold"),
+            corner_radius=5,
+        )
+        apply_button.grid(row=0, column=1, sticky="e", padx=(0, 4))
+        self.suggestion_apply_buttons[marker] = apply_button
+
+        ignore_button = ctk.CTkButton(
+            suggestion,
+            text=t("history_suggestion_ignore"),
+            width=66,
+            height=22,
+            fg_color=COLORS["bg4"],
+            hover_color=COLORS["border3"],
+            text_color=COLORS["text2"],
+            font=font(9, "bold"),
+            corner_radius=5,
+        )
+        ignore_button.grid(row=0, column=2, sticky="e")
+        self.suggestion_ignore_buttons[marker] = ignore_button
+
     @staticmethod
     def _label_text(label: str) -> str:
         return " ".join(label.upper()) if len(label) <= 14 else label.upper()
@@ -338,6 +403,7 @@ class FormPanel(ctk.CTkFrame):
             self.on_update()
 
     def _handle_key_update(self, marker: str) -> None:
+        self.clear_detected_indicator(marker)
         if marker in self.REQUIRED_MARKERS:
             self.entries[marker].configure(border_color=COLORS["border3"])
             self.error_labels[marker].configure(text="")
@@ -354,6 +420,7 @@ class FormPanel(ctk.CTkFrame):
             return
         entry.delete(0, "end")
         entry.insert(0, f"{today.day:02d} de {months[today.month - 1]} de {today.year}")
+        self.clear_detected_indicator("{{DATA}}")
         self._notify_update()
 
     def get_values(self) -> dict:
@@ -369,11 +436,93 @@ class FormPanel(ctk.CTkFrame):
                 continue
             entry.delete(0, "end")
             entry.insert(0, str(value))
+            self.clear_detected_indicator(marker)
             updated += 1
         if updated:
             self.clear_validation()
             self._notify_update()
         return updated
+
+    def set_detected_values(self, detections: dict, only_empty: bool = True) -> int:
+        updated = 0
+        for marker, detection in detections.items():
+            value = getattr(detection, "value", "")
+            if not value:
+                continue
+            if self.set_field_value(marker, str(value), detected=True, notify=False, only_empty=only_empty):
+                updated += 1
+        if updated:
+            self.clear_validation()
+            self._notify_update()
+        return updated
+
+    def set_field_value(
+        self,
+        marker: str,
+        value: str,
+        detected: bool = False,
+        notify: bool = True,
+        only_empty: bool = False,
+    ) -> bool:
+        entry = self.entries.get(marker)
+        if entry is None:
+            return False
+        if only_empty and entry.get().strip():
+            return False
+        entry.delete(0, "end")
+        entry.insert(0, str(value))
+        if detected:
+            self._mark_detected(marker)
+        else:
+            self.clear_detected_indicator(marker)
+        if notify:
+            self.clear_validation()
+            self._notify_update()
+        return True
+
+    def _mark_detected(self, marker: str) -> None:
+        label = self.detection_labels.get(marker)
+        if label is not None:
+            label.configure(text=t("auto_detected_label"))
+        self.auto_detected_markers.add(marker)
+
+    def clear_detected_indicator(self, marker: str) -> None:
+        label = self.detection_labels.get(marker)
+        if label is not None:
+            label.configure(text="")
+        self.auto_detected_markers.discard(marker)
+
+    def set_history_suggestion(self, marker: str, suggestion: HistorySuggestion, apply_command, ignore_command) -> None:
+        frame = self.suggestion_frames.get(marker)
+        label = self.suggestion_labels.get(marker)
+        apply_button = self.suggestion_apply_buttons.get(marker)
+        ignore_button = self.suggestion_ignore_buttons.get(marker)
+        if frame is None or label is None or apply_button is None or ignore_button is None:
+            return
+
+        prefix = t("history_suggestion_different") if suggestion.status == "different" else t("history_suggestion_prefix")
+        label.configure(text=f"{prefix}: {suggestion.value}")
+        apply_button.configure(command=apply_command)
+        ignore_button.configure(command=ignore_command)
+        frame.grid()
+
+    def clear_history_suggestion(self, marker: str) -> None:
+        frame = self.suggestion_frames.get(marker)
+        label = self.suggestion_labels.get(marker)
+        apply_button = self.suggestion_apply_buttons.get(marker)
+        ignore_button = self.suggestion_ignore_buttons.get(marker)
+        if label is not None:
+            label.configure(text="")
+        if apply_button is not None:
+            apply_button.configure(command=lambda: None)
+        if ignore_button is not None:
+            ignore_button.configure(command=lambda: None)
+        if frame is not None:
+            frame.grid_remove()
+
+    def clear_history_suggestions(self) -> None:
+        for marker in list(self.suggestion_frames):
+            self.clear_history_suggestion(marker)
 
     def get_missing_required(self) -> list[str]:
         return [
@@ -408,5 +557,8 @@ class FormPanel(ctk.CTkFrame):
     def clear(self) -> None:
         for entry in self.entries.values():
             entry.delete(0, "end")
+        for marker in list(self.auto_detected_markers):
+            self.clear_detected_indicator(marker)
+        self.clear_history_suggestions()
         self.clear_validation()
         self._notify_update()
