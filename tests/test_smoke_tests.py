@@ -13,6 +13,7 @@ from tests.smoke_tests import (
     test_template_profile_store_tracks_corrections,
     test_ui_layout,
     test_history_suggestion_widget_toggles_visibility,
+    test_settings_and_about_windows_open_and_populate,
 )
 
 
@@ -30,4 +31,5 @@ def test_smoke_suite() -> None:
     test_structured_logger_writes_jsonl()
     test_ui_layout()
     test_history_suggestion_widget_toggles_visibility()
+    test_settings_and_about_windows_open_and_populate()
     test_semantic_template_detection_and_persistence()

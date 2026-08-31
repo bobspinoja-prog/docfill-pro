@@ -160,6 +160,54 @@ def test_history_suggestion_widget_toggles_visibility() -> None:
     app.close_app()
 
 
+def test_settings_and_about_windows_open_and_populate() -> None:
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("green")
+    with TemporaryDirectory() as tmp:
+        template = Path(tmp) / "declaracao_teste.docx"
+        doc = Document()
+        doc.add_paragraph(
+            "STEFANO DO COUTO ROSA MILO, brasileiro, advogado, solteiro, "
+            "portador do CPF n° 436.106.638-80, na qualidade de COMPRADOR do Lote 15 "
+            "Quadra 13A do LOTEAMENTO ALPHAVILLE RIBEIRÃO PRETO, adquirido através de "
+            "Instrumento Particular de Promessa de Venda e Compra do(a) Sr.(a).CARLOS "
+            "ALBERTO CHAIN CAMPANA, para os devidos fins de direito."
+        )
+        doc.add_paragraph("Ribeirão Preto, 17 de Junho de 2026")
+        doc.save(template)
+
+        app = DocFillProApp()
+        app.load_template(template, show_errors=False)
+        app.update()
+
+        app.open_settings()
+        app.update()
+        settings_window = app.settings_window
+        assert settings_window is not None and settings_window.winfo_exists()
+        assert "Template:" in settings_window.analysis_view.get("1.0", "end")
+        assert len(settings_window.semantic_rows_frame.winfo_children()) > 5
+        assert settings_window.profile_summary_view.get("1.0", "end").strip()
+
+        marker = next(m for m, d in app.template_semantic_detections.items() if d.value)
+        app.accept_template_detection(marker)
+        app.update()
+        assert app.form_panel.get_values().get(marker)
+
+        app.form_panel.set_field_value("{{CIDADE}}", "CIDADE CORRIGIDA")
+        app.correct_template_detection("{{CIDADE}}")
+        app.update()
+        assert app.template_semantic_detections["{{CIDADE}}"].value == "CIDADE CORRIGIDA"
+
+        settings_window.withdraw()
+
+        app.show_about()
+        app.update()
+        assert app.about_window is not None and app.about_window.winfo_exists()
+        app.about_window.withdraw()
+
+        app.close_app()
+
+
 def test_semantic_template_detection_and_persistence() -> None:
     with TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -420,6 +468,7 @@ def main() -> None:
         test_template_profile_store_tracks_corrections,
         test_structured_logger_writes_jsonl,
         test_ui_layout,
+        test_settings_and_about_windows_open_and_populate,
         test_semantic_template_detection_and_persistence,
     ]
     for test in tests:
