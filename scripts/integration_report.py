@@ -10,7 +10,7 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ASSETS_DIR = PROJECT_ROOT / "assets"
 ICONS_DIR = ASSETS_DIR / "icons"
-REPORT_PATH = PROJECT_ROOT / "ASSETS_INTEGRATION_REPORT.json"
+REPORT_PATH = PROJECT_ROOT / "docs" / "dev-notes" / "ASSETS_INTEGRATION_REPORT.json"
 
 
 def _status(value: bool) -> str:
