@@ -50,6 +50,7 @@ Name: "desktopicon"; Description: "{cm:DesktopShortcutDescription}"; GroupDescri
 [Files]
 Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\data\mappings.json"; DestDir: "{app}\data"; Flags: onlyifdoesntexist ignoreversion
 Source: "..\data\template_semantic_mappings.json"; DestDir: "{app}\data"; Flags: onlyifdoesntexist ignoreversion
 Source: "..\data\template_profiles.json"; DestDir: "{app}\data"; Flags: onlyifdoesntexist ignoreversion
 Source: "..\data\history.json"; DestDir: "{app}\data"; Flags: onlyifdoesntexist ignoreversion

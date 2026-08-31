@@ -296,17 +296,27 @@ def test_mapping_seed_and_build_files_are_present() -> None:
     seed = ROOT / "data" / "template_semantic_mappings.json"
     assert seed.exists()
     assert seed.read_text(encoding="utf-8").strip() == "{}"
-    assert "template_semantic_mappings.json" in (ROOT / "DOCFILL PRO.spec").read_text(encoding="utf-8")
-    assert "template_semantic_mappings.json" in (ROOT / "installer" / "DOCFILL_PRO_Inno.iss").read_text(encoding="utf-8")
+    assert (ROOT / "data" / "mappings.json").exists()
     assert (ROOT / "data" / "template_profiles.json").exists()
     assert (ROOT / "data" / "history.json").exists()
     assert (ROOT / "data" / "user_session.json").exists()
-    assert "template_profiles.json" in (ROOT / "DOCFILL PRO.spec").read_text(encoding="utf-8")
-    assert "history.json" in (ROOT / "DOCFILL PRO.spec").read_text(encoding="utf-8")
-    assert "user_session.json" in (ROOT / "DOCFILL PRO.spec").read_text(encoding="utf-8")
-    assert "template_profiles.json" in (ROOT / "installer" / "DOCFILL_PRO_Inno.iss").read_text(encoding="utf-8")
-    assert "history.json" in (ROOT / "installer" / "DOCFILL_PRO_Inno.iss").read_text(encoding="utf-8")
-    assert "user_session.json" in (ROOT / "installer" / "DOCFILL_PRO_Inno.iss").read_text(encoding="utf-8")
+
+    seed_names = (
+        "mappings.json",
+        "template_semantic_mappings.json",
+        "template_profiles.json",
+        "history.json",
+        "user_session.json",
+    )
+    manifests = (
+        ROOT / "DOCFILL PRO.spec",
+        ROOT / "installer" / "DOCFILL_PRO_Inno.iss",
+        ROOT / "installer" / "DocFillPro.iss",
+    )
+    for manifest in manifests:
+        content = manifest.read_text(encoding="utf-8")
+        for name in seed_names:
+            assert name in content, f"{name} missing from {manifest.name}"
 
 
 def test_history_manager_records_and_filters_documents() -> None:
