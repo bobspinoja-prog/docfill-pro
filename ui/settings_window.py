@@ -7,7 +7,7 @@ from typing import Any
 import customtkinter as ctk
 
 from services.template_semantic_analyzer import FIELD_LABELS, SemanticDetection
-from ui.i18n import t
+from ui.i18n import field_label, t
 from ui.theme import COLORS, font
 
 
@@ -110,9 +110,9 @@ class SettingsWindow(ctk.CTkToplevel):
         form_card.grid_columnconfigure(0, weight=1)
         form_card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(form_card, text=t("settings_add_marker"), font=font(14, "bold"), text_color=COLORS["green3"], anchor="w").grid(row=0, column=0, columnspan=2, sticky="ew", padx=14, pady=(12, 6))
-        self.custom_marker = ctk.CTkEntry(form_card, placeholder_text="Ex.: TELEFONE", fg_color=COLORS["input"], border_color=COLORS["border3"], text_color=COLORS["text"])
+        self.custom_marker = ctk.CTkEntry(form_card, placeholder_text=t("custom_marker_placeholder"), fg_color=COLORS["input"], border_color=COLORS["border3"], text_color=COLORS["text"])
         self.custom_marker.grid(row=1, column=0, sticky="ew", padx=(14, 6), pady=(0, 12))
-        self.custom_value = ctk.CTkEntry(form_card, placeholder_text="Valor do marcador", fg_color=COLORS["input"], border_color=COLORS["border3"], text_color=COLORS["text"])
+        self.custom_value = ctk.CTkEntry(form_card, placeholder_text=t("custom_value_placeholder"), fg_color=COLORS["input"], border_color=COLORS["border3"], text_color=COLORS["text"])
         self.custom_value.grid(row=1, column=1, sticky="ew", padx=(6, 14), pady=(0, 12))
         ctk.CTkButton(form_card, text=t("settings_save_marker"), fg_color=COLORS["green"], hover_color=COLORS["green2"], command=self.save_mapping).grid(row=2, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 14))
 
@@ -182,7 +182,7 @@ class SettingsWindow(ctk.CTkToplevel):
             return
         app = self.app
         if not app.template_path:
-            self._set_textbox(self.analysis_view, "Selecione um template .docx para iniciar a análise.")
+            self._set_textbox(self.analysis_view, t("template_status_none"))
             return
 
         try:
@@ -194,20 +194,20 @@ class SettingsWindow(ctk.CTkToplevel):
                 lines = [f"PDF: {analysis['template']}"]
                 lines.extend(f"- {item}" for item in analysis["summary"])
                 if app.template_suggestions:
-                    lines.append(f"- Campos detectados no texto: {len(app.template_suggestions)}")
+                    lines.append(f"- {t('detected_fields_in_text')} {len(app.template_suggestions)}")
                 lines.append("")
-                lines.append("Areas selecionaveis:")
+                lines.append(t("pdf_selectable_areas_label"))
                 if analysis["areas"]:
                     lines.extend(f"  - {area}" for area in analysis["areas"])
                 else:
-                    lines.append("  - Nenhuma area de texto detectada.")
+                    lines.append(f"  - {t('pdf_no_text_area_detected')}")
                 if app.pdf_area_mappings:
                     lines.append("")
-                    lines.append("Areas marcadas manualmente:")
+                    lines.append(t("pdf_manual_areas_label"))
                     for marker, areas in app.pdf_area_mappings.items():
                         lines.append(f"  - {marker}: {len(areas)} area(s)")
                 self._set_textbox(self.analysis_view, "\n".join(lines))
-                app._set_status("Analise PDF concluida")
+                app._set_status(t("analysis_complete"))
                 return
 
             reader = app._get_reader()
@@ -215,27 +215,27 @@ class SettingsWindow(ctk.CTkToplevel):
                 return
             analysis = reader.analyze_template()
 
-            lines = [f"Template: {analysis['template']}"]
+            lines = [f"{t('settings_profile_template')}: {analysis['template']}"]
             lines.extend(f"- {item}" for item in analysis["summary"])
             if app.template_suggestions:
-                lines.append(f"- Campos detectados no texto: {len(app.template_suggestions)}")
-            lines.append("\nMarcadores detectados:")
+                lines.append(f"- {t('detected_fields_in_text')} {len(app.template_suggestions)}")
+            lines.append(f"\n{t('detected_markers_label')}")
             if analysis["placeholders"]:
                 lines.extend(f"  - {marker}" for marker in analysis["placeholders"])
             else:
-                lines.append("  - Nenhum marcador encontrado.")
+                lines.append(f"  - {t('no_markers_found')}")
 
-            lines.append("\nÁreas identificadas:")
+            lines.append(f"\n{t('identified_areas_label')}")
             if analysis["areas"]:
                 lines.extend(f"  - {area}" for area in analysis["areas"])
             else:
-                lines.append("  - Nenhuma área especial detectada.")
+                lines.append(f"  - {t('no_special_area_detected')}")
 
             self._set_textbox(self.analysis_view, "\n".join(lines))
-            app._set_status("Análise concluída")
+            app._set_status(t("analysis_complete"))
         except Exception as exc:
-            self._set_textbox(self.analysis_view, f"Não foi possível analisar o template:\n{exc}")
-            app._set_status("Erro na análise")
+            self._set_textbox(self.analysis_view, f"{t('template_load_failed')}\n{exc}")
+            app._set_status(t("analysis_error"))
 
     def save_mapping(self) -> None:
         if self.custom_marker is None or self.custom_value is None:
@@ -250,15 +250,15 @@ class SettingsWindow(ctk.CTkToplevel):
             self.custom_value.delete(0, "end")
             self.refresh_mapping_view()
             self.app.update_preview()
-            messagebox.showinfo("Mapeamento", f"Marcador {normalized_marker} salvo com sucesso.")
+            messagebox.showinfo(t("mapping_saved"), t("marker_saved_with_name").format(marker=normalized_marker))
         except ValueError as exc:
-            messagebox.showerror("Erro", str(exc))
+            messagebox.showerror(t("error_title"), str(exc))
 
     def refresh_mapping_view(self) -> None:
         if self.mapping_view is None:
             return
         data = self.app.mapping_manager.load()
-        lines = ["Nenhum marcador adicional cadastrado."] if not data else [f"{key} = {value}" for key, value in sorted(data.items())]
+        lines = [t("mapping_list_empty")] if not data else [f"{key} = {value}" for key, value in sorted(data.items())]
         self._set_textbox(self.mapping_view, "\n".join(lines))
 
     @staticmethod
@@ -295,7 +295,7 @@ class SettingsWindow(ctk.CTkToplevel):
             f"{t('settings_profile_corrections')}: {len(corrections)}",
         ]
         if learned_fields:
-            labels = [FIELD_LABELS.get(field, field) for field in learned_fields[:6]]
+            labels = [field_label(field, FIELD_LABELS.get(field, field)) for field in learned_fields[:6]]
             lines.append(f"{t('settings_profile_learned')}: {', '.join(labels)}")
         if history:
             lines.append(f"{t('settings_profile_last_event')}: {history[-1].get('event', '-')}")
@@ -400,7 +400,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
             ctk.CTkLabel(
                 self.semantic_rows_frame,
-                text=label,
+                text=field_label(marker, label),
                 text_color=COLORS["text"],
                 font=font(10, "bold"),
                 anchor="w",

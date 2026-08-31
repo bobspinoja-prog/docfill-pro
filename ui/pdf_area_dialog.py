@@ -6,7 +6,7 @@ import customtkinter as ctk
 
 from services.pdf_handler import PDFManualArea
 from services.template_semantic_analyzer import FIELD_LABELS
-from ui.i18n import t
+from ui.i18n import field_label, t
 from ui.theme import COLORS, font
 
 
@@ -18,11 +18,11 @@ def open_pdf_area_dialog(
 ) -> None:
     """Opens the small dialog used to map a dragged PDF area to a form field."""
     default_marker = _suggest_marker_for_selection(app, selected_text)
-    labels = {f"{label} ({marker})": marker for marker, label in FIELD_LABELS.items()}
+    labels = {f"{field_label(marker, label)} ({marker})": marker for marker, label in FIELD_LABELS.items()}
     default_label = next((label for label, marker in labels.items() if marker == default_marker), next(iter(labels)))
 
     window = ctk.CTkToplevel(app)
-    window.title("Marcar area PDF")
+    window.title(t("pdf_area_dialog_title"))
     window.geometry("460x300")
     window.minsize(420, 260)
     window.configure(fg_color=COLORS["bg"])
@@ -32,13 +32,13 @@ def open_pdf_area_dialog(
 
     ctk.CTkLabel(
         window,
-        text="Area selecionada",
+        text=t("pdf_area_selected_label"),
         text_color=COLORS["green3"],
         font=font(16, "bold"),
         anchor="w",
     ).grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 6))
 
-    preview_text = " ".join((selected_text or "Area sem texto detectado").split())
+    preview_text = " ".join((selected_text or t("pdf_area_no_text")).split())
     if len(preview_text) > 220:
         preview_text = preview_text[:217].rstrip() + "..."
     ctk.CTkLabel(
@@ -82,12 +82,12 @@ def open_pdf_area_dialog(
         app._schedule_autosave_snapshot()
         app.update_preview()
         app.analyze_template_section()
-        app._set_status(f"Area PDF marcada: {FIELD_LABELS.get(marker, marker)}")
+        app._set_status(f"{t('pdf_area_marked_status')} {field_label(marker, FIELD_LABELS.get(marker, marker))}")
         window.destroy()
 
     ctk.CTkButton(
         actions,
-        text="Salvar marcador",
+        text=t("pdf_area_save_button"),
         fg_color=COLORS["green2"],
         hover_color=COLORS["green"],
         text_color=COLORS["text"],

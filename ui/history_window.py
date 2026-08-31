@@ -7,7 +7,7 @@ from tkinter import BooleanVar
 import customtkinter as ctk
 
 from services.template_semantic_analyzer import FIELD_LABELS
-from ui.i18n import t
+from ui.i18n import field_label, t
 from ui.theme import COLORS, font
 
 
@@ -234,7 +234,7 @@ class HistoryWindow(ctk.CTkToplevel):
         ]
         if isinstance(fields, dict):
             for key, value in fields.items():
-                lines.append(f"- {FIELD_LABELS.get(key, key)}: {value}")
+                lines.append(f"- {field_label(key, FIELD_LABELS.get(key, key))}: {value}")
         lines.append("")
         lines.append(t("history_detail_detected"))
         if isinstance(detected, dict):
@@ -248,9 +248,9 @@ class HistoryWindow(ctk.CTkToplevel):
                         detail += f" | {int(round(float(confidence) * 100))}%"
                     if source:
                         detail += f" | {source}"
-                    lines.append(f"- {FIELD_LABELS.get(key, key)}: {detail}")
+                    lines.append(f"- {field_label(key, FIELD_LABELS.get(key, key))}: {detail}")
                 else:
-                    lines.append(f"- {FIELD_LABELS.get(key, key)}: {value}")
+                    lines.append(f"- {field_label(key, FIELD_LABELS.get(key, key))}: {value}")
         self._set_detail_text("\n".join(lines))
         self.favorite_button.configure(state="normal", text=t("history_unfavorite") if record.get("favorite") else t("history_favorite"))
 

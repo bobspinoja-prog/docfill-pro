@@ -379,7 +379,7 @@ class DocFillProApp(ctk.CTk):
         self._refresh_status_context()
         self._schedule_autosave_snapshot()
         self.refresh_session_views()
-        self._set_status("Dados reutilizados")
+        self._set_status(t("status_data_reused"))
 
     def _history_duplicate_fill(self, record: dict[str, str]) -> None:
         template_path = record.get("template_path", "")
@@ -398,7 +398,7 @@ class DocFillProApp(ctk.CTk):
         self._refresh_status_context()
         self._schedule_autosave_snapshot()
         self.refresh_session_views()
-        self._set_status("Preenchimento duplicado")
+        self._set_status(t("status_fill_duplicated"))
 
     def apply_history_suggestion(self, marker: str) -> None:
         suggestion = self._visible_history_suggestions.get(marker)
@@ -410,7 +410,7 @@ class DocFillProApp(ctk.CTk):
         self._last_history_suggestion_signature = None
         self._schedule_autosave_snapshot()
         self.refresh_session_views()
-        self._set_status("Sugestão aplicada")
+        self._set_status(t("status_suggestion_applied"))
 
     def ignore_history_suggestion(self, marker: str) -> None:
         suggestion = self._visible_history_suggestions.get(marker)
@@ -420,7 +420,7 @@ class DocFillProApp(ctk.CTk):
         self.form_panel.clear_history_suggestion(marker)
         self._visible_history_suggestions.pop(marker, None)
         self._last_history_suggestion_signature = None
-        self._set_status("Sugestão ignorada")
+        self._set_status(t("status_suggestion_ignored"))
 
     def analyze_template_section(self) -> None:
         if self.settings_window is not None and self.settings_window.winfo_exists():
@@ -452,7 +452,7 @@ class DocFillProApp(ctk.CTk):
                     values=self.form_panel.get_values(),
                 )
                 self._refresh_status_context()
-                self._set_status("PDF pronto")
+                self._set_status(t("status_pdf_ready"))
                 return
 
             reader = self._get_reader()
@@ -466,28 +466,28 @@ class DocFillProApp(ctk.CTk):
             self.preview_panel.set_marker_count(marker_count)
             self.preview_panel.set_text(text)
             self._refresh_status_context()
-            self._set_status("Pronto")
+            self._set_status(t("status_ready"))
         except Exception as exc:
-            self.preview_panel.set_text(f"Não foi possível gerar o preview: {exc}")
+            self.preview_panel.set_text(f"{t('preview_error')} {exc}")
             self.preview_panel.set_marker_count(0)
-            self._set_status("Erro no preview")
+            self._set_status(t("status_error"))
 
     def select_template(self) -> None:
         file_path = filedialog.askopenfilename(
-            title="Selecionar Template DOCX ou PDF",
+            title=t("select_template_dialog_title"),
             filetypes=[
-                ("Documentos suportados", "*.docx *.pdf"),
-                ("Word moderno (.docx)", "*.docx"),
-                ("PDF (.pdf)", "*.pdf"),
-                ("Word antigo (.doc)", "*.doc"),
-                ("Todos os arquivos", "*.*"),
+                (t("filetype_supported_docs"), "*.docx *.pdf"),
+                (t("filetype_docx"), "*.docx"),
+                (t("filetype_pdf"), "*.pdf"),
+                (t("filetype_doc_legacy"), "*.doc"),
+                (t("filetype_all_files"), "*.*"),
             ],
         )
         if file_path:
             self.load_template(file_path)
 
     def select_output(self) -> None:
-        folder = filedialog.askdirectory(title="Selecionar Pasta de Saída")
+        folder = filedialog.askdirectory(title=t("select_output_folder_title"))
         if folder:
             self.output_folder = Path(folder)
             self.session_store.set_last_output_folder(self.output_folder)
@@ -498,7 +498,7 @@ class DocFillProApp(ctk.CTk):
             )
             self._schedule_autosave_snapshot()
             self._refresh_status_context()
-            self._set_status("Pasta definida")
+            self._set_status(t("status_output_set"))
             self.refresh_session_views()
 
     def clear_form(self) -> None:
@@ -507,17 +507,17 @@ class DocFillProApp(ctk.CTk):
         self._visible_history_suggestions.clear()
         self._last_history_suggestion_signature = None
         self._schedule_autosave_snapshot()
-        self._set_status("Campos limpos")
+        self._set_status(t("status_fields_cleared"))
 
     def clear_pdf_areas(self) -> None:
         if not self.pdf_area_mappings:
-            self._set_status("Nenhuma area PDF marcada")
+            self._set_status(t("status_no_pdf_areas"))
             return
         self.pdf_area_mappings = {}
         self._schedule_autosave_snapshot()
         self.update_preview()
         self.analyze_template_section()
-        self._set_status("Areas PDF limpas")
+        self._set_status(t("status_pdf_areas_cleared"))
 
     def handle_pdf_area_selected(self, page_index: int, pdf_rect: tuple[float, float, float, float], selected_text: str = "") -> None:
         if not self._is_pdf_template():
@@ -526,19 +526,19 @@ class DocFillProApp(ctk.CTk):
 
     def generate_document(self) -> None:
         if not self.template_path:
-            messagebox.showerror("Erro", "Selecione um template .docx ou .pdf antes de gerar o documento.")
+            messagebox.showerror(t("error_title"), t("select_template_error"))
             return
 
         values = self.form_panel.get_values()
         missing = self.form_panel.get_missing_required()
         if missing:
             self.form_panel.mark_missing_required(missing)
-            messagebox.showerror("Validação", "Preencha os campos obrigatórios marcados em vermelho.")
+            messagebox.showerror(t("validation_title"), t("validation_error"))
             return
 
         output_folder = self.output_folder
         if output_folder is None:
-            selected_folder = filedialog.askdirectory(title="Selecionar Pasta de Saída")
+            selected_folder = filedialog.askdirectory(title=t("select_output_folder_title"))
             if not selected_folder:
                 return
             output_folder = Path(selected_folder)
@@ -549,12 +549,12 @@ class DocFillProApp(ctk.CTk):
         try:
             output_folder.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            messagebox.showerror("Pasta de saída inválida", f"Não foi possível criar a pasta de saída:\n{exc}")
-            self._set_status("Pasta de saída inválida")
+            messagebox.showerror(t("invalid_output_folder_title"), f"{t('create_output_folder_error')}\n{exc}")
+            self._set_status(t("invalid_output_folder_title"))
             return
         if not output_folder.is_dir():
-            messagebox.showerror("Pasta de saída inválida", "O caminho de saída selecionado não é uma pasta.")
-            self._set_status("Pasta de saída inválida")
+            messagebox.showerror(t("invalid_output_folder_title"), t("output_folder_not_a_directory"))
+            self._set_status(t("invalid_output_folder_title"))
             return
 
         if self._is_pdf_template():
@@ -570,7 +570,7 @@ class DocFillProApp(ctk.CTk):
         try:
             writer = DOCXWriter()
             writer.generate(self.template_path, output_path, replacements)
-            messagebox.showinfo("Sucesso", f"Documento gerado com sucesso em:\n{output_path}")
+            messagebox.showinfo(t("success_title"), f"{t('document_generated_at')}\n{output_path}")
             self._record_template_profile()
             self._record_template_usage()
             try:
@@ -632,9 +632,9 @@ class DocFillProApp(ctk.CTk):
                 )
             self.refresh_session_views()
             if self.semantic_generation_warnings:
-                self._set_status("Revisão necessária")
+                self._set_status(t("status_review_needed"))
             else:
-                self._set_status("Documento gerado")
+                self._set_status(t("status_generated"))
         except Exception as exc:
             self.event_logger.log(
                 "document_generation_error",
@@ -644,12 +644,12 @@ class DocFillProApp(ctk.CTk):
                 output_path=str(output_path),
                 error=str(exc),
             )
-            messagebox.showerror("Erro ao gerar", f"Não foi possível gerar o arquivo: {exc}")
+            messagebox.showerror(t("generation_error_title"), f"{t('file_generation_failed')} {exc}")
 
     def _generate_pdf_document(self, values: dict[str, str], output_folder: Path) -> None:
         handler = self._get_pdf_handler()
         if handler is None or self.template_path is None:
-            messagebox.showerror("Erro", "Nao foi possivel ler o PDF atual.")
+            messagebox.showerror(t("error_title"), t("pdf_read_failed"))
             return
 
         comprador = values.get("{{COMPRADOR}}", "").strip()
@@ -664,21 +664,21 @@ class DocFillProApp(ctk.CTk):
             )
             summary = report.to_dict()
             lines = [
-                f"PDF gerado com sucesso em:\n{output_path}",
+                f"{t('pdf_generated_at')}\n{output_path}",
                 "",
-                f"Areas manuais aplicadas: {len(summary['manual_fields'])}",
-                f"Substituicoes detectadas: {len(summary['auto_fields'])}",
-                f"Itens ignorados: {len(summary['skipped'])}",
+                f"{t('manual_areas_applied')} {len(summary['manual_fields'])}",
+                f"{t('detected_substitutions')} {len(summary['auto_fields'])}",
+                f"{t('ignored_items')} {len(summary['skipped'])}",
             ]
             if summary["skipped"]:
                 lines.append("")
-                lines.append("Ignorados:")
+                lines.append(t("ignored_label"))
                 lines.extend(f"- {item}" for item in summary["skipped"][:5])
             if summary["warnings"]:
                 lines.append("")
-                lines.append("Avisos:")
+                lines.append(t("warnings_label"))
                 lines.extend(f"- {item}" for item in summary["warnings"][:5])
-            messagebox.showinfo("Sucesso", "\n".join(lines))
+            messagebox.showinfo(t("success_title"), "\n".join(lines))
             self._record_template_profile()
             self._record_template_usage()
             try:
@@ -729,7 +729,7 @@ class DocFillProApp(ctk.CTk):
                     error=str(exc),
                 )
             self.refresh_session_views()
-            self._set_status("PDF gerado")
+            self._set_status(t("status_pdf_generated"))
         except Exception as exc:
             self.event_logger.log(
                 "pdf_generation_error",
@@ -739,11 +739,11 @@ class DocFillProApp(ctk.CTk):
                 output_path=str(output_path),
                 error=str(exc),
             )
-            messagebox.showerror("Erro ao gerar", f"Nao foi possivel gerar o PDF:\n{exc}")
+            messagebox.showerror(t("generation_error_title"), f"{t('pdf_generation_failed')}\n{exc}")
 
     def rewrite_template_with_markers(self) -> None:
         if not self.template_path:
-            messagebox.showerror("Erro", "Selecione um template .docx ou .pdf antes de reescrever marcadores.")
+            messagebox.showerror(t("error_title"), t("select_template_error"))
             return
         if self._is_pdf_template():
             self._rewrite_pdf_with_markers()
@@ -751,14 +751,14 @@ class DocFillProApp(ctk.CTk):
 
         reader = self._get_reader()
         if reader is None:
-            messagebox.showerror("Erro", "Nao foi possivel ler o template atual.")
+            messagebox.showerror(t("error_title"), t("template_read_failed"))
             return
 
         output_folder = Path(self.output_folder or self.template_path.parent)
         try:
             output_folder.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            messagebox.showerror("Pasta de saida invalida", f"Nao foi possivel criar a pasta de saida:\n{exc}")
+            messagebox.showerror(t("invalid_output_folder_title"), f"{t('create_output_folder_error')}\n{exc}")
             return
 
         output_path = self._next_available_path(output_folder / f"TEMPLATE_MARCADO - {self.template_path.name}")
@@ -767,17 +767,17 @@ class DocFillProApp(ctk.CTk):
             report = rewrite_template_with_markers(self.template_path, output_path, extraction)
             summary = report.to_dict()
             lines = [
-                f"Template marcado gerado em:\n{output_path}",
+                f"{t('template_marked_at')}\n{output_path}",
                 "",
-                f"Campos marcados: {len(summary['marked_fields'])}",
-                f"Campos em revisao: {len(summary['review_fields'])}",
-                f"Campos ignorados: {len(summary['ignored_fields'])}",
+                f"{t('marked_fields_count')} {len(summary['marked_fields'])}",
+                f"{t('review_fields_count')} {len(summary['review_fields'])}",
+                f"{t('ignored_fields_count')} {len(summary['ignored_fields'])}",
             ]
             if summary["ignored_fields"]:
                 lines.append("")
-                lines.append("Ignorados:")
+                lines.append(t("ignored_label"))
                 lines.extend(f"- {item}" for item in summary["ignored_fields"][:6])
-            messagebox.showinfo("Template marcado", "\n".join(lines))
+            messagebox.showinfo(t("marked_template_title"), "\n".join(lines))
             self.event_logger.log(
                 "template_rewritten_with_markers",
                 message="Template reescrito com marcadores",
@@ -785,7 +785,7 @@ class DocFillProApp(ctk.CTk):
                 output_path=str(output_path),
                 report=summary,
             )
-            self._set_status("Template marcado gerado")
+            self._set_status(t("status_template_marked_generated"))
         except Exception as exc:
             self.event_logger.log(
                 "template_rewrite_error",
@@ -795,19 +795,19 @@ class DocFillProApp(ctk.CTk):
                 output_path=str(output_path),
                 error=str(exc),
             )
-            messagebox.showerror("Erro ao reescrever", f"Nao foi possivel gerar o template marcado:\n{exc}")
+            messagebox.showerror(t("rewrite_error_title"), f"{t('marked_template_failed')}\n{exc}")
 
     def _rewrite_pdf_with_markers(self) -> None:
         handler = self._get_pdf_handler()
         if handler is None or self.template_path is None:
-            messagebox.showerror("Erro", "Nao foi possivel ler o PDF atual.")
+            messagebox.showerror(t("error_title"), t("pdf_read_failed"))
             return
 
         output_folder = Path(self.output_folder or self.template_path.parent)
         try:
             output_folder.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            messagebox.showerror("Pasta de saida invalida", f"Nao foi possivel criar a pasta de saida:\n{exc}")
+            messagebox.showerror(t("invalid_output_folder_title"), f"{t('create_output_folder_error')}\n{exc}")
             return
 
         output_path = self._next_available_path(output_folder / f"TEMPLATE_MARCADO - {self.template_path.name}")
@@ -819,17 +819,17 @@ class DocFillProApp(ctk.CTk):
             )
             summary = report.to_dict()
             lines = [
-                f"PDF marcado gerado em:\n{output_path}",
+                f"{t('pdf_marked_at')}\n{output_path}",
                 "",
-                f"Areas manuais marcadas: {len(summary['manual_fields'])}",
-                f"Campos detectados marcados: {len(summary['auto_fields'])}",
-                f"Itens ignorados: {len(summary['skipped'])}",
+                f"{t('manual_areas_marked')} {len(summary['manual_fields'])}",
+                f"{t('detected_fields_marked')} {len(summary['auto_fields'])}",
+                f"{t('ignored_items')} {len(summary['skipped'])}",
             ]
             if summary["skipped"]:
                 lines.append("")
-                lines.append("Ignorados:")
+                lines.append(t("ignored_label"))
                 lines.extend(f"- {item}" for item in summary["skipped"][:6])
-            messagebox.showinfo("PDF marcado", "\n".join(lines))
+            messagebox.showinfo(t("marked_pdf_title"), "\n".join(lines))
             self.event_logger.log(
                 "pdf_template_rewritten_with_markers",
                 message="PDF reescrito com marcadores",
@@ -837,7 +837,7 @@ class DocFillProApp(ctk.CTk):
                 output_path=str(output_path),
                 report=summary,
             )
-            self._set_status("PDF marcado gerado")
+            self._set_status(t("status_pdf_marked_generated"))
         except Exception as exc:
             self.event_logger.log(
                 "pdf_template_rewrite_error",
@@ -847,7 +847,7 @@ class DocFillProApp(ctk.CTk):
                 output_path=str(output_path),
                 error=str(exc),
             )
-            messagebox.showerror("Erro ao reescrever", f"Nao foi possivel gerar o PDF marcado:\n{exc}")
+            messagebox.showerror(t("rewrite_error_title"), f"{t('marked_pdf_failed')}\n{exc}")
 
     def refresh_session_views(self) -> None:
         if self.settings_window is not None and self.settings_window.winfo_exists():
@@ -999,7 +999,7 @@ class DocFillProApp(ctk.CTk):
             template_path=str(template_path),
             template_hash=autosave.get("template_hash", ""),
         )
-        self._set_status("Sessão restaurada")
+        self._set_status(t("status_session_restored"))
         return True
 
     def refresh_template_mapping_view(self) -> None:
@@ -1028,14 +1028,14 @@ class DocFillProApp(ctk.CTk):
         self.refresh_template_mapping_view()
         self.refresh_session_views()
         self.update_preview()
-        self._set_status("Mapeamento aceito")
+        self._set_status(t("status_mapping_accepted"))
 
     def correct_template_detection(self, marker: str) -> None:
         if not self.template_semantic_hash:
             return
         value = self.form_panel.get_values().get(marker, "").strip()
         if not value:
-            messagebox.showinfo(t("template_mapping_title"), "Preencha o campo na lateral antes de corrigir o mapeamento.")
+            messagebox.showinfo(t("template_mapping_title"), t("correct_detection_needs_value"))
             return
         detection = self.semantic_analyzer.save_manual_value(self.template_semantic_hash, marker, value)
         self.template_semantic_detections[marker] = detection
@@ -1052,7 +1052,7 @@ class DocFillProApp(ctk.CTk):
         self.refresh_template_mapping_view()
         self.refresh_session_views()
         self.update_preview()
-        self._set_status("Mapeamento corrigido")
+        self._set_status(t("status_mapping_corrected"))
 
     def _reset_template_semantics(self) -> None:
         self.template_semantic_hash = None
@@ -1075,10 +1075,10 @@ class DocFillProApp(ctk.CTk):
             self.pdf_handler = None
             self.template_kind = "docx"
             self._reset_template_semantics()
-            message = f"Template não encontrado:\n{path}"
-            self._set_status("Template não encontrado")
+            message = f"{t('template_not_found')}\n{path}"
+            self._set_status(t("template_not_found"))
             if show_errors:
-                messagebox.showerror("Erro", message)
+                messagebox.showerror(t("error_title"), message)
             else:
                 self.preview_panel.set_text(message)
             return
@@ -1093,12 +1093,12 @@ class DocFillProApp(ctk.CTk):
             self.template_suggestions = {}
             self._reset_template_semantics()
             self.preview_panel.set_text(validation_error)
-            self.preview_panel.set_model_name("Nenhum modelo")
+            self.preview_panel.set_model_name(t("preview_none"))
             self.preview_panel.set_marker_count(0)
             self._refresh_status_context()
-            self._set_status("Arquivo não suportado")
+            self._set_status(t("status_unsupported_file"))
             if show_errors:
-                messagebox.showerror("Arquivo Word não suportado", validation_error)
+                messagebox.showerror(t("template_invalid"), validation_error)
             return
 
         if path.suffix.lower() == ".pdf":
@@ -1164,21 +1164,21 @@ class DocFillProApp(ctk.CTk):
             )
 
             if analysis["placeholders"]:
-                self._set_status(f"{len(analysis['placeholders'])} marcadores")
+                self._set_status(f"{len(analysis['placeholders'])} {t('template_markers')}")
             elif self.template_suggestions:
-                self._set_status(f"{detected} campos detectados")
+                self._set_status(f"{detected} {t('fields_detected')}")
             else:
-                self._set_status("Template carregado")
+                self._set_status(t("template_loaded"))
         except Exception as exc:
             self.template_path = None
             self.reader = None
             self.template_suggestions = {}
             self._reset_template_semantics()
             self._refresh_status_context()
-            self.preview_panel.set_text(f"Não foi possível carregar o template:\n{exc}")
-            self.preview_panel.set_model_name("Template inválido")
+            self.preview_panel.set_text(f"{t('template_load_failed')}\n{exc}")
+            self.preview_panel.set_model_name(t("template_invalid_name"))
             self.preview_panel.set_marker_count(0)
-            self._set_status("Erro ao carregar")
+            self._set_status(t("load_error"))
             self.event_logger.log(
                 "template_load_error",
                 level="error",
@@ -1187,7 +1187,7 @@ class DocFillProApp(ctk.CTk):
                 error=str(exc),
             )
             if show_errors:
-                messagebox.showerror("Erro ao carregar", f"Não foi possível carregar o template:\n{exc}")
+                messagebox.showerror(t("load_error"), f"{t('template_load_failed')}\n{exc}")
         finally:
             self._state_sync_suspended = False
 
@@ -1258,9 +1258,9 @@ class DocFillProApp(ctk.CTk):
                 text_blocks=analysis.get("text_blocks", 0),
             )
             if self.template_suggestions:
-                self._set_status(f"PDF carregado: {detected} campos detectados")
+                self._set_status(f"{t('pdf_loaded')}: {detected} {t('fields_detected')}")
             else:
-                self._set_status("PDF carregado")
+                self._set_status(t("pdf_loaded"))
         except Exception as exc:
             self.template_path = None
             self.reader = None
@@ -1269,10 +1269,10 @@ class DocFillProApp(ctk.CTk):
             self.template_suggestions = {}
             self._reset_template_semantics()
             self._refresh_status_context()
-            self.preview_panel.set_text(f"Nao foi possivel carregar o PDF:\n{exc}")
-            self.preview_panel.set_model_name("PDF invalido")
+            self.preview_panel.set_text(f"{t('pdf_load_failed')}\n{exc}")
+            self.preview_panel.set_model_name(t("pdf_invalid_name"))
             self.preview_panel.set_marker_count(0)
-            self._set_status("Erro ao carregar PDF")
+            self._set_status(t("pdf_load_error"))
             self.event_logger.log(
                 "pdf_template_load_error",
                 level="error",
@@ -1281,7 +1281,7 @@ class DocFillProApp(ctk.CTk):
                 error=str(exc),
             )
             if show_errors:
-                messagebox.showerror("Erro ao carregar", f"Nao foi possivel carregar o PDF:\n{exc}")
+                messagebox.showerror(t("load_error"), f"{t('pdf_load_failed')}\n{exc}")
         finally:
             self._state_sync_suspended = False
 
@@ -1415,8 +1415,8 @@ class DocFillProApp(ctk.CTk):
         self.footer_status_label.configure(text=text)
 
     def _refresh_status_context(self) -> None:
-        template = self.template_path.name if self.template_path else "nenhum"
-        output = self.output_folder.name if self.output_folder else "não definida"
+        template = self.template_path.name if self.template_path else t("none")
+        output = self.output_folder.name if self.output_folder else t("no_output")
         if len(template) > 44:
             template = f"...{template[-41:]}"
         if len(output) > 38:
@@ -1438,21 +1438,15 @@ class DocFillProApp(ctk.CTk):
     @staticmethod
     def _validate_template_path(path: Path) -> str | None:
         if path.name.startswith("~$"):
-            return (
-                "Esse é um arquivo temporário do Word.\n\n"
-                "Feche o documento no Word e selecione o arquivo original .docx."
-            )
+            return t("temp_word_file_error")
         if path.suffix.lower() == ".doc":
-            return (
-                "Arquivos .doc antigos não são suportados diretamente.\n\n"
-                "Abra no Microsoft Word e salve como .docx, depois adicione o novo arquivo."
-            )
+            return t("legacy_doc_error")
         if path.suffix.lower() == ".pdf":
             if not pdf_support_available():
-                return "Suporte a PDF indisponivel. Instale PyMuPDF para abrir arquivos .pdf."
+                return t("pdf_support_unavailable")
             return None
         if path.suffix.lower() != ".docx":
-            return "Selecione um arquivo Word no formato .docx ou um PDF no formato .pdf."
+            return t("unsupported_file_format")
         return None
 
     def close_app(self) -> None:

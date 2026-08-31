@@ -3,7 +3,7 @@ from datetime import date
 import customtkinter as ctk
 
 from services.history_suggestions import HistorySuggestion
-from ui.i18n import t
+from ui.i18n import field_label, t
 from ui.symbol_manager import SymbolManager
 from ui.theme import CARD_STYLE, COLORS, FIELD_STYLE, font, symbol_font
 
@@ -149,32 +149,32 @@ class FormPanel(ctk.CTkFrame):
         card = CollapsibleCard(self.content, t("fields_title"), "♙")
         card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         self._two_col_row(card.body, 0)
-        self._add_field(card.body, 0, 0, "Nome Completo", "{{COMPRADOR}}", t("placeholder_name"), columnspan=2)
-        self._add_field(card.body, 1, 0, "Nacionalidade", "{{NACIONALIDADE}}", t("placeholder_nationality"))
-        self._add_field(card.body, 1, 1, "Profissão", "{{PROFISSAO}}", t("placeholder_profession"))
-        self._add_field(card.body, 2, 0, "Estado Civil", "{{ESTADO_CIVIL}}", t("placeholder_marital_status"))
-        self._add_field(card.body, 2, 1, "CPF/CNPJ", "{{CPF_CNPJ}}", t("placeholder_cpf"))
+        self._add_field(card.body, 0, 0, field_label("{{COMPRADOR}}"), "{{COMPRADOR}}", t("placeholder_name"), columnspan=2)
+        self._add_field(card.body, 1, 0, field_label("{{NACIONALIDADE}}"), "{{NACIONALIDADE}}", t("placeholder_nationality"))
+        self._add_field(card.body, 1, 1, field_label("{{PROFISSAO}}"), "{{PROFISSAO}}", t("placeholder_profession"))
+        self._add_field(card.body, 2, 0, field_label("{{ESTADO_CIVIL}}"), "{{ESTADO_CIVIL}}", t("placeholder_marital_status"))
+        self._add_field(card.body, 2, 1, field_label("{{CPF_CNPJ}}"), "{{CPF_CNPJ}}", t("placeholder_cpf"))
 
     def _build_property_card(self, row: int) -> None:
         card = CollapsibleCard(self.content, t("property_title"), "▦")
         card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         self._two_col_row(card.body, 0)
-        self._add_field(card.body, 0, 0, "Lote/Unidade", "{{LOTE}}", t("placeholder_lote"))
-        self._add_field(card.body, 0, 1, "Quadra", "{{QUADRA}}", t("placeholder_quadra"))
-        self._add_field(card.body, 1, 0, "Empreendimento", "{{EMPREENDIMENTO}}", t("placeholder_empreendimento"), columnspan=2)
+        self._add_field(card.body, 0, 0, field_label("{{LOTE}}"), "{{LOTE}}", t("placeholder_lote"))
+        self._add_field(card.body, 0, 1, field_label("{{QUADRA}}"), "{{QUADRA}}", t("placeholder_quadra"))
+        self._add_field(card.body, 1, 0, field_label("{{EMPREENDIMENTO}}"), "{{EMPREENDIMENTO}}", t("placeholder_empreendimento"), columnspan=2)
 
     def _build_seller_card(self, row: int) -> None:
         card = CollapsibleCard(self.content, t("seller_title"), "♙")
         card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         self._two_col_row(card.body, 0)
-        self._add_field(card.body, 0, 0, "Nome do Vendedor", "{{VENDEDOR}}", t("placeholder_vendedor"), columnspan=2)
+        self._add_field(card.body, 0, 0, field_label("{{VENDEDOR}}"), "{{VENDEDOR}}", t("placeholder_vendedor"), columnspan=2)
 
     def _build_document_card(self, row: int) -> None:
         card = CollapsibleCard(self.content, t("document_title"), "▤")
         card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         self._two_col_row(card.body, 0)
-        self._add_field(card.body, 0, 0, "Cidade", "{{CIDADE}}", t("placeholder_city"))
-        self._add_field(card.body, 0, 1, "Data", "{{DATA}}", t("placeholder_date"), with_today=True)
+        self._add_field(card.body, 0, 0, field_label("{{CIDADE}}"), "{{CIDADE}}", t("placeholder_city"))
+        self._add_field(card.body, 0, 1, field_label("{{DATA}}"), "{{DATA}}", t("placeholder_date"), with_today=True)
 
     def _build_actions_card(self, row: int) -> None:
         card = ctk.CTkFrame(
