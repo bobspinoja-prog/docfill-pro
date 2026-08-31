@@ -1,10 +1,14 @@
+import os
 from pathlib import Path
 
 import pytest
 
 fitz = pytest.importorskip("fitz")
 
+import customtkinter as ctk
+
 from services.pdf_handler import PDFHandler, PDFManualArea
+from ui.main_window import DocFillProApp
 
 
 PDF_PREAMBLE = (
@@ -63,3 +67,50 @@ def test_pdf_handler_generates_filled_pdf_without_touching_original(tmp_path: Pa
     assert "{{DATA}}" not in report.skipped
     output_text = "\n".join(page.get_text("text") for page in fitz.open(output_path))
     assert "CLIENTE PDF TESTE" in output_text
+
+
+def _find_button(widget, text: str):
+    for child in widget.winfo_children():
+        if isinstance(child, ctk.CTkButton) and child.cget("text") == text:
+            return child
+        found = _find_button(child, text)
+        if found is not None:
+            return found
+    return None
+
+
+def test_pdf_area_dialog_saves_manual_area(tmp_path: Path) -> None:
+    os.environ["PYTEST_CURRENT_TEST"] = "1"
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("green")
+
+    pdf_path = tmp_path / "declaracao.pdf"
+    _make_pdf(pdf_path)
+
+    app = DocFillProApp()
+    try:
+        app.load_template(pdf_path, show_errors=False)
+        app.update()
+        assert app.pdf_area_mappings == {}
+
+        app.handle_pdf_area_selected(0, (10.0, 10.0, 100.0, 30.0), "algum texto")
+        app.update()
+
+        dialogs = [w for w in app.winfo_children() if isinstance(w, ctk.CTkToplevel) and w.winfo_exists()]
+        assert dialogs, "PDF area dialog did not open"
+        dialog = dialogs[-1]
+
+        from ui.i18n import t
+
+        save_button = _find_button(dialog, t("pdf_area_save_button"))
+        assert save_button is not None, "save button not found in PDF area dialog"
+        save_button.cget("command")()
+        app.update()
+
+        assert "{{COMPRADOR}}" in app.pdf_area_mappings
+        areas = app.pdf_area_mappings["{{COMPRADOR}}"]
+        assert len(areas) == 1
+        assert areas[0].rect == (10.0, 10.0, 100.0, 30.0)
+        assert not dialog.winfo_exists()
+    finally:
+        app.close_app()

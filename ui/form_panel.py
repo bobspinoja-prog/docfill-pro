@@ -418,6 +418,9 @@ class FormPanel(ctk.CTkFrame):
 
     @staticmethod
     def _label_text(label: str) -> str:
+        has_cjk = any("一" <= char <= "鿿" for char in label)
+        if has_cjk:
+            return label
         return " ".join(label.upper()) if len(label) <= 14 else label.upper()
 
     def _notify_update(self) -> None:
