@@ -10,6 +10,7 @@ COLORS = {
     "green2": "#16A34A",
     "green3": "#4ADE80",
     "green4": "#86EFAC",
+    "yellow": "#FACC15",
     "text": "#F8FAFC",
     "text2": "#CBD5E1",
     "text3": "#94A3B8",

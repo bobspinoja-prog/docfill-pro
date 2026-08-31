@@ -213,6 +213,28 @@ class FormPanel(ctk.CTkFrame):
             card,
             3,
             0,
+            "Reescrever Template",
+            "M",
+            self.callbacks.get("rewrite_template"),
+            columnspan=2,
+            fg=COLORS["bg4"],
+            hover=COLORS["green2"],
+        )
+        self._action_button(
+            card,
+            4,
+            0,
+            "Limpar areas PDF",
+            "P",
+            self.callbacks.get("clear_pdf_areas"),
+            columnspan=2,
+            fg=COLORS["bg4"],
+            hover=COLORS["border3"],
+        )
+        self._action_button(
+            card,
+            5,
+            0,
             t("btn_clear"),
             "⌫",
             self.callbacks.get("clear"),
@@ -447,9 +469,19 @@ class FormPanel(ctk.CTkFrame):
         updated = 0
         for marker, detection in detections.items():
             value = getattr(detection, "value", "")
+            confidence = float(getattr(detection, "confidence", 0.0) or 0.0)
             if not value:
                 continue
-            if self.set_field_value(marker, str(value), detected=True, notify=False, only_empty=only_empty):
+            if confidence < 0.60:
+                continue
+            if self.set_field_value(
+                marker,
+                str(value),
+                detected=True,
+                notify=False,
+                only_empty=only_empty,
+                confidence=confidence,
+            ):
                 updated += 1
         if updated:
             self.clear_validation()
@@ -463,6 +495,7 @@ class FormPanel(ctk.CTkFrame):
         detected: bool = False,
         notify: bool = True,
         only_empty: bool = False,
+        confidence: float | None = None,
     ) -> bool:
         entry = self.entries.get(marker)
         if entry is None:
@@ -472,7 +505,7 @@ class FormPanel(ctk.CTkFrame):
         entry.delete(0, "end")
         entry.insert(0, str(value))
         if detected:
-            self._mark_detected(marker)
+            self._mark_detected(marker, confidence)
         else:
             self.clear_detected_indicator(marker)
         if notify:
@@ -480,16 +513,29 @@ class FormPanel(ctk.CTkFrame):
             self._notify_update()
         return True
 
-    def _mark_detected(self, marker: str) -> None:
+    def _mark_detected(self, marker: str, confidence: float | None = None) -> None:
         label = self.detection_labels.get(marker)
+        entry = self.entries.get(marker)
+        review_needed = confidence is not None and confidence < 0.85
         if label is not None:
-            label.configure(text=t("auto_detected_label"))
+            if review_needed:
+                label.configure(
+                    text=f"revisar detec\u00e7\u00e3o ({int(round(confidence * 100))}%)",
+                    text_color=COLORS["yellow"],
+                )
+            else:
+                label.configure(text=t("auto_detected_label"), text_color=COLORS["green4"])
+        if entry is not None:
+            entry.configure(border_color=COLORS["yellow"] if review_needed else COLORS["border3"])
         self.auto_detected_markers.add(marker)
 
     def clear_detected_indicator(self, marker: str) -> None:
         label = self.detection_labels.get(marker)
+        entry = self.entries.get(marker)
         if label is not None:
-            label.configure(text="")
+            label.configure(text="", text_color=COLORS["green4"])
+        if entry is not None:
+            entry.configure(border_color=COLORS["border3"])
         self.auto_detected_markers.discard(marker)
 
     def set_history_suggestion(self, marker: str, suggestion: HistorySuggestion, apply_command, ignore_command) -> None:

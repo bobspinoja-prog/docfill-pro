@@ -2,9 +2,19 @@
 from pathlib import Path
 
 
-datas = [('assets\\logo.png', 'assets'), ('assets\\logo.ico', 'assets'), ('assets\\app_icon.ico', 'assets'), ('data\\template_semantic_mappings.json', 'data'), ('data\\template_profiles.json', 'data'), ('data\\user_settings.json', 'data'), ('data\\history.json', 'data'), ('data\\user_session.json', 'data')]
-if Path('assets/icons').exists():
-    datas.append(('assets\\icons', 'assets\\icons'))
+datas = []
+if Path('assets').exists():
+    datas.append(('assets', 'assets'))
+for data_file in (
+    'mappings.json',
+    'template_semantic_mappings.json',
+    'template_profiles.json',
+    'history.json',
+    'user_session.json',
+):
+    source = Path('data') / data_file
+    if source.exists():
+        datas.append((str(source), 'data'))
 
 icon_path = 'assets\\icons\\docfill.ico' if Path('assets/icons/docfill.ico').exists() else 'assets\\app_icon.ico'
 

@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import re
-import sys
-import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from docx import Document
+
+from services.field_extractor import MARKER_BY_FIELD, extract_fields
+from services.runtime_json_store import RuntimeJsonStore
 
 
 FIELD_LABELS = {
@@ -58,33 +57,11 @@ class SemanticDetection:
         )
 
 
-def _default_mapping_file() -> Path:
-    if getattr(sys, "frozen", False):
-        local_app_data = os.getenv("LOCALAPPDATA")
-        base_dir = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
-        return base_dir / "DocFillPro" / "data" / "template_semantic_mappings.json"
-    return Path(__file__).resolve().parent.parent / "data" / "template_semantic_mappings.json"
-
-
-def _resource_root() -> Path:
-    if getattr(sys, "frozen", False):
-        frozen_root = getattr(sys, "_MEIPASS", None)
-        if frozen_root:
-            return Path(frozen_root)
-    return Path(__file__).resolve().parent.parent
-
-
-class TemplateSemanticAnalyzer:
+class TemplateSemanticAnalyzer(RuntimeJsonStore):
     """Infers values for the fixed DocFill Pro UI fields from a DOCX template."""
 
-    DEFAULT_FILE = _default_mapping_file()
-
-    def __init__(self, file_path: str | Path | None = None) -> None:
-        self.file_path = Path(file_path) if file_path else self.DEFAULT_FILE
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        self.seed_file = _resource_root() / "data" / "template_semantic_mappings.json"
-        if not self.file_path.exists():
-            self._initialize_storage()
+    filename = "template_semantic_mappings.json"
+    default_content: dict[str, Any] = {}
 
     def analyze(self, template_path: str | Path) -> dict[str, SemanticDetection]:
         path = Path(template_path)
@@ -94,6 +71,7 @@ class TemplateSemanticAnalyzer:
 
         auto_detections: dict[str, SemanticDetection] = {}
         self._detect_placeholders(full_text, auto_detections)
+        self._detect_semantic_fields(full_text, auto_detections)
         self._detect_structured_declaration(full_text, auto_detections)
         self._detect_contextual_fields(full_text, auto_detections)
 
@@ -116,7 +94,7 @@ class TemplateSemanticAnalyzer:
         auto_detections: dict[str, SemanticDetection],
         detections: dict[str, SemanticDetection],
     ) -> None:
-        data = self._load_all()
+        data = self.load()
         current = data.get(template_hash, {})
         data[template_hash] = {
             **current,
@@ -129,10 +107,10 @@ class TemplateSemanticAnalyzer:
             "accepted": current.get("accepted", {}),
             "history": current.get("history", []),
         }
-        self._atomic_write(data)
+        self.save(data)
 
     def accept_detection(self, template_hash: str, detection: SemanticDetection) -> None:
-        data = self._load_all()
+        data = self.load()
         item = data.setdefault(template_hash, {})
         accepted = item.setdefault("accepted", {})
         accepted[detection.field] = detection.to_dict()
@@ -148,7 +126,7 @@ class TemplateSemanticAnalyzer:
             }
         )
         item["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        self._atomic_write(data)
+        self.save(data)
 
     def save_manual_value(self, template_hash: str, field: str, value: str) -> SemanticDetection:
         detection = SemanticDetection(
@@ -162,7 +140,7 @@ class TemplateSemanticAnalyzer:
         return detection
 
     def load_template_mapping(self, template_hash: str) -> dict[str, Any]:
-        return dict(self._load_all().get(template_hash, {}))
+        return dict(self.load().get(template_hash, {}))
 
     @staticmethod
     def template_hash(template_path: str | Path) -> str:
@@ -191,6 +169,21 @@ class TemplateSemanticAnalyzer:
                 confidence=0.99,
                 source="placeholder",
                 snippet=self._snippet(text, match.start(), match.end()),
+            )
+
+    def _detect_semantic_fields(self, text: str, detections: dict[str, SemanticDetection]) -> None:
+        extraction = extract_fields(text)
+        for field_name, item in extraction.fields.items():
+            marker = MARKER_BY_FIELD.get(field_name)
+            if marker not in SUPPORTED_FIELDS or not item.value:
+                continue
+            self._add_detection(
+                detections,
+                marker,
+                item.value,
+                item.confidence,
+                item.source,
+                item.evidence,
             )
 
     def _detect_structured_declaration(self, text: str, detections: dict[str, SemanticDetection]) -> None:
@@ -298,17 +291,6 @@ class TemplateSemanticAnalyzer:
                 "context: data apos cidade",
                 self._snippet(text, city_date.start("data"), city_date.end("data")),
             )
-        else:
-            city_match = re.search(r"\bRIBEIR[\u00c3A]O\s+PRETO\b", text, re.IGNORECASE)
-            if city_match:
-                self._add_detection(
-                    detections,
-                    "{{CIDADE}}",
-                    city_match.group(0),
-                    0.68,
-                    "context: cidade conhecida",
-                    self._snippet(text, city_match.start(), city_match.end()),
-                )
 
     def _add_detection(
         self,
@@ -410,35 +392,3 @@ class TemplateSemanticAnalyzer:
         marker_text = marker_text.strip("{}").strip()
         return f"{{{{{marker_text}}}}}" if marker_text else ""
 
-    def _load_all(self) -> dict[str, Any]:
-        try:
-            data = json.loads(self.file_path.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else {}
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            return {}
-
-    def _atomic_write(self, data: dict[str, Any]) -> None:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.file_path.parent, delete=False) as handle:
-            json.dump(data, handle, indent=2, ensure_ascii=False)
-            temp_path = Path(handle.name)
-        os.replace(temp_path, self.file_path)
-
-    def _initialize_storage(self) -> None:
-        try:
-            if self.seed_file.exists():
-                self._copy_seed_file(self.seed_file)
-                return
-        except OSError:
-            pass
-        self._atomic_write({})
-
-    def _copy_seed_file(self, source: Path) -> None:
-        try:
-            content = source.read_text(encoding="utf-8")
-        except OSError:
-            self._atomic_write({})
-            return
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.file_path.parent, delete=False) as handle:
-            handle.write(content)
-            temp_path = Path(handle.name)
-        os.replace(temp_path, self.file_path)

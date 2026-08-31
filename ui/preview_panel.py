@@ -3,6 +3,7 @@ import re
 import tkinter as tk
 
 import customtkinter as ctk
+from PIL import ImageTk
 
 from ui.i18n import t
 from ui.symbol_manager import SymbolManager
@@ -13,8 +14,13 @@ class PreviewPanel(ctk.CTkFrame):
     """Painel de preview com folha A4 centralizada."""
 
     ZOOM_STEPS = [60, 75, 90, 100, 110, 125, 150]
+    PAGE_BASE_WIDTH = 620
+    PAGE_RATIO = 1.414
+    PAGE_PADDING_X = 48
+    PAGE_PADDING_TOP = 40
+    PAGE_PADDING_BOTTOM = 80
 
-    def __init__(self, master: ctk.CTkFrame, on_refresh=None) -> None:
+    def __init__(self, master: ctk.CTkFrame, on_refresh=None, on_pdf_area_selected=None) -> None:
         super().__init__(
             master,
             fg_color=COLORS["bg2"],
@@ -22,9 +28,11 @@ class PreviewPanel(ctk.CTkFrame):
             border_width=0,
         )
         self.on_refresh = on_refresh
+        self.on_pdf_area_selected = on_pdf_area_selected
         self.zoom_percent = 100
         self.marker_count = 0
         self._content = ""
+        self._mode = "text"
         self._empty_state = True
         self._empty_symbol_image = SymbolManager.get_symbol_with_opacity("empty", opacity=0.18, size=72)
         self._empty_symbol_widget = None
@@ -35,6 +43,13 @@ class PreviewPanel(ctk.CTkFrame):
         self._loading_symbol_widget = None
         self._loading_job = None
         self._loading_symbol_index = 0
+        self._pdf_pages = []
+        self._pdf_areas = []
+        self._pdf_values: dict[str, str] = {}
+        self._pdf_photo_images = []
+        self._pdf_page_items: list[dict] = []
+        self._pdf_selection_start = None
+        self._pdf_selection_item = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -208,8 +223,8 @@ class PreviewPanel(ctk.CTkFrame):
             relief="flat",
             borderwidth=0,
             wrap="word",
-            padx=32,
-            pady=36,
+            padx=self.PAGE_PADDING_X,
+            pady=self.PAGE_PADDING_TOP,
             font=("Segoe UI", 11),
             spacing1=1,
             spacing2=1,
@@ -225,6 +240,9 @@ class PreviewPanel(ctk.CTkFrame):
         self.page_window = self.canvas.create_window(0, 18, window=self.shadow, anchor="n")
         self.canvas.bind("<Configure>", self._on_canvas_resize)
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<ButtonPress-1>", self._on_pdf_press)
+        self.canvas.bind("<B1-Motion>", self._on_pdf_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_pdf_release)
         self.text.bind("<MouseWheel>", self._on_mousewheel)
         self.page.bind("<MouseWheel>", self._on_mousewheel)
         self.shadow.bind("<MouseWheel>", self._on_mousewheel)
@@ -258,6 +276,9 @@ class PreviewPanel(ctk.CTkFrame):
         self.marker_badge.grid(row=0, column=6, padx=10, pady=6)
 
     def set_text(self, text: str) -> None:
+        self._mode = "text"
+        self._clear_pdf_canvas()
+        self.canvas.itemconfigure(self.page_window, state="normal")
         self._stop_loading()
         content = text or t("preview_empty")
         self._empty_state = not bool(text) or content.rstrip(".") == t("preview_empty")
@@ -290,8 +311,12 @@ class PreviewPanel(ctk.CTkFrame):
         self.text.configure(state="disabled")
         self._update_counts(content)
         self.after_idle(self._update_page_geometry)
+        self.after(80, self._update_page_geometry)
 
     def set_loading(self, message: str) -> None:
+        self._mode = "text"
+        self._clear_pdf_canvas()
+        self.canvas.itemconfigure(self.page_window, state="normal")
         self._empty_state = True
         self._content = message
         self.text.configure(state="normal")
@@ -322,6 +347,23 @@ class PreviewPanel(ctk.CTkFrame):
         self.text.configure(state="disabled")
         self._update_counts(message)
         self.after_idle(self._update_page_geometry)
+        self.after(80, self._update_page_geometry)
+
+    def set_pdf_pages(self, pages: list, areas: list | None = None, values: dict[str, str] | None = None) -> None:
+        self._stop_loading()
+        self._mode = "pdf"
+        self._empty_state = False
+        self._pdf_pages = list(pages)
+        self._pdf_areas = list(areas or [])
+        self._pdf_values = dict(values or {})
+        self.canvas.itemconfigure(self.page_window, state="hidden")
+        self._render_pdf_canvas()
+        page_count = len(self._pdf_pages)
+        block_count = sum(len(getattr(page, "blocks", []) or []) for page in self._pdf_pages)
+        area_count = len(self._pdf_areas)
+        self.page_label.configure(text=f"PDF: {page_count} pagina(s)")
+        self.words_label.configure(text=f"{block_count} blocos")
+        self.chars_label.configure(text=f"{area_count} areas marcadas")
 
     def set_meta(self, text: str) -> None:
         if text and " | " in text:
@@ -341,6 +383,269 @@ class PreviewPanel(ctk.CTkFrame):
         self.text.tag_remove("marker", "1.0", "end")
         for match in re.finditer(r"\{\{[^{}]+\}\}", content):
             self.text.tag_add("marker", f"1.0+{match.start()}c", f"1.0+{match.end()}c")
+
+    def _clear_pdf_canvas(self) -> None:
+        self.canvas.delete("pdf")
+        self.canvas.delete("pdf_selection")
+        self._pdf_photo_images = []
+        self._pdf_page_items = []
+        self._pdf_selection_start = None
+        self._pdf_selection_item = None
+
+    def _render_pdf_canvas(self) -> None:
+        if self._mode != "pdf":
+            return
+        self.update_idletasks()
+        self.canvas.delete("pdf")
+        self.canvas.delete("pdf_selection")
+        self._pdf_photo_images = []
+        self._pdf_page_items = []
+
+        canvas_width = max(self.canvas.winfo_width(), 500)
+        y = 18
+        page_gap = 26
+        max_width = canvas_width
+        for page in self._pdf_pages:
+            image = getattr(page, "image", None)
+            if image is None:
+                continue
+            photo = ImageTk.PhotoImage(image)
+            self._pdf_photo_images.append(photo)
+            image_width = int(image.width)
+            image_height = int(image.height)
+            x = max((canvas_width - image_width) // 2, 24)
+            self.canvas.create_rectangle(
+                x + 5,
+                y + 6,
+                x + image_width + 5,
+                y + image_height + 6,
+                fill="#D9E2E8",
+                outline="",
+                tags=("pdf", "pdf_shadow"),
+            )
+            self.canvas.create_image(x, y, anchor="nw", image=photo, tags=("pdf", "pdf_page"))
+            self.canvas.create_rectangle(
+                x,
+                y,
+                x + image_width,
+                y + image_height,
+                outline="#CBD5E1",
+                width=1,
+                tags=("pdf", "pdf_page_border"),
+            )
+            page_info = {
+                "page_index": getattr(page, "page_index", 0),
+                "x": x,
+                "y": y,
+                "image_width": image_width,
+                "image_height": image_height,
+                "pdf_width": float(getattr(page, "width", image_width) or image_width),
+                "pdf_height": float(getattr(page, "height", image_height) or image_height),
+                "blocks": list(getattr(page, "blocks", []) or []),
+            }
+            self._pdf_page_items.append(page_info)
+            self._draw_pdf_blocks(page_info)
+            self._draw_pdf_areas(page_info)
+            y += image_height + page_gap
+            max_width = max(max_width, x + image_width + 40)
+
+        self.canvas.configure(scrollregion=(0, 0, max_width, max(y, self.canvas.winfo_height())))
+
+    def _draw_pdf_blocks(self, page_info: dict) -> None:
+        for block in page_info.get("blocks", []):
+            rect = self._pdf_rect_to_canvas(page_info, getattr(block, "rect", (0, 0, 0, 0)))
+            if rect is None:
+                continue
+            x0, y0, x1, y1 = rect
+            if x1 - x0 < 4 or y1 - y0 < 4:
+                continue
+            self.canvas.create_rectangle(
+                x0,
+                y0,
+                x1,
+                y1,
+                outline="#86EFAC",
+                dash=(2, 3),
+                width=1,
+                tags=("pdf", "pdf_block"),
+            )
+
+    def _draw_pdf_areas(self, page_info: dict) -> None:
+        for area in self._pdf_areas:
+            marker = self._area_marker(area)
+            if self._area_page_index(area) != page_info.get("page_index"):
+                continue
+            rect = self._pdf_rect_to_canvas(page_info, self._area_rect(area))
+            if rect is None:
+                continue
+            x0, y0, x1, y1 = rect
+            label = self._marker_label(marker)
+            self.canvas.create_rectangle(
+                x0,
+                y0,
+                x1,
+                y1,
+                outline="#F59E0B",
+                width=2,
+                tags=("pdf", "pdf_manual_area"),
+            )
+            self.canvas.create_text(
+                x0 + 4,
+                max(y0 - 14, page_info["y"] + 8),
+                text=label,
+                anchor="w",
+                fill="#B45309",
+                font=("Segoe UI", 9, "bold"),
+                tags=("pdf", "pdf_manual_label"),
+            )
+
+    def _on_pdf_press(self, event):
+        if self._mode != "pdf":
+            return None
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        page_info = self._pdf_page_at(x, y)
+        if page_info is None:
+            return None
+        self._pdf_selection_start = (x, y, page_info)
+        self.canvas.delete("pdf_selection")
+        self._pdf_selection_item = self.canvas.create_rectangle(
+            x,
+            y,
+            x,
+            y,
+            outline="#2563EB",
+            width=2,
+            dash=(4, 2),
+            tags=("pdf_selection",),
+        )
+        return "break"
+
+    def _on_pdf_drag(self, event):
+        if self._mode != "pdf" or self._pdf_selection_start is None or self._pdf_selection_item is None:
+            return None
+        start_x, start_y, page_info = self._pdf_selection_start
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        x = min(max(x, page_info["x"]), page_info["x"] + page_info["image_width"])
+        y = min(max(y, page_info["y"]), page_info["y"] + page_info["image_height"])
+        self.canvas.coords(self._pdf_selection_item, start_x, start_y, x, y)
+        return "break"
+
+    def _on_pdf_release(self, event):
+        if self._mode != "pdf" or self._pdf_selection_start is None:
+            return None
+        start_x, start_y, page_info = self._pdf_selection_start
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        self._pdf_selection_start = None
+        if self._pdf_selection_item is not None:
+            self.canvas.delete(self._pdf_selection_item)
+            self._pdf_selection_item = None
+
+        x = min(max(x, page_info["x"]), page_info["x"] + page_info["image_width"])
+        y = min(max(y, page_info["y"]), page_info["y"] + page_info["image_height"])
+        if abs(x - start_x) < 5 and abs(y - start_y) < 5:
+            block = self._pdf_block_at(page_info, x, y)
+            if block is None:
+                return "break"
+            pdf_rect = getattr(block, "rect", (0, 0, 0, 0))
+            selected_text = getattr(block, "text", "")
+        else:
+            pdf_rect = self._canvas_rect_to_pdf(page_info, (start_x, start_y, x, y))
+            selected_text = self._text_for_pdf_rect(page_info, pdf_rect)
+
+        if self.on_pdf_area_selected:
+            self.on_pdf_area_selected(page_info["page_index"], pdf_rect, selected_text)
+        return "break"
+
+    def _pdf_page_at(self, x: float, y: float) -> dict | None:
+        for page_info in self._pdf_page_items:
+            if (
+                page_info["x"] <= x <= page_info["x"] + page_info["image_width"]
+                and page_info["y"] <= y <= page_info["y"] + page_info["image_height"]
+            ):
+                return page_info
+        return None
+
+    def _pdf_block_at(self, page_info: dict, x: float, y: float):
+        for block in page_info.get("blocks", []):
+            rect = self._pdf_rect_to_canvas(page_info, getattr(block, "rect", (0, 0, 0, 0)))
+            if rect is None:
+                continue
+            x0, y0, x1, y1 = rect
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return block
+        return None
+
+    def _text_for_pdf_rect(self, page_info: dict, pdf_rect: tuple[float, float, float, float]) -> str:
+        values = []
+        for block in page_info.get("blocks", []):
+            block_rect = getattr(block, "rect", (0, 0, 0, 0))
+            if self._rects_intersect(block_rect, pdf_rect):
+                values.append(getattr(block, "text", ""))
+        return " ".join(" ".join(value.split()) for value in values if value).strip()
+
+    def _canvas_rect_to_pdf(self, page_info: dict, canvas_rect: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+        x0, y0, x1, y1 = canvas_rect
+        left = max(min(x0, x1), page_info["x"])
+        right = min(max(x0, x1), page_info["x"] + page_info["image_width"])
+        top = max(min(y0, y1), page_info["y"])
+        bottom = min(max(y0, y1), page_info["y"] + page_info["image_height"])
+        scale_x = page_info["pdf_width"] / max(1, page_info["image_width"])
+        scale_y = page_info["pdf_height"] / max(1, page_info["image_height"])
+        return (
+            (left - page_info["x"]) * scale_x,
+            (top - page_info["y"]) * scale_y,
+            (right - page_info["x"]) * scale_x,
+            (bottom - page_info["y"]) * scale_y,
+        )
+
+    def _pdf_rect_to_canvas(self, page_info: dict, pdf_rect: tuple[float, float, float, float]):
+        try:
+            x0, y0, x1, y1 = [float(value) for value in pdf_rect]
+        except (TypeError, ValueError):
+            return None
+        scale_x = page_info["image_width"] / max(1.0, page_info["pdf_width"])
+        scale_y = page_info["image_height"] / max(1.0, page_info["pdf_height"])
+        return (
+            page_info["x"] + min(x0, x1) * scale_x,
+            page_info["y"] + min(y0, y1) * scale_y,
+            page_info["x"] + max(x0, x1) * scale_x,
+            page_info["y"] + max(y0, y1) * scale_y,
+        )
+
+    @staticmethod
+    def _rects_intersect(left, right) -> bool:
+        lx0, ly0, lx1, ly1 = [float(value) for value in left]
+        rx0, ry0, rx1, ry1 = [float(value) for value in right]
+        lx0, lx1 = min(lx0, lx1), max(lx0, lx1)
+        ly0, ly1 = min(ly0, ly1), max(ly0, ly1)
+        rx0, rx1 = min(rx0, rx1), max(rx0, rx1)
+        ry0, ry1 = min(ry0, ry1), max(ry0, ry1)
+        return not (lx1 < rx0 or rx1 < lx0 or ly1 < ry0 or ry1 < ly0)
+
+    @staticmethod
+    def _area_marker(area) -> str:
+        return str(area.get("marker", "")) if isinstance(area, dict) else str(getattr(area, "marker", ""))
+
+    @staticmethod
+    def _area_page_index(area) -> int:
+        return int(area.get("page_index", 0) if isinstance(area, dict) else getattr(area, "page_index", 0))
+
+    @staticmethod
+    def _area_rect(area):
+        return area.get("rect", (0, 0, 0, 0)) if isinstance(area, dict) else getattr(area, "rect", (0, 0, 0, 0))
+
+    def _marker_label(self, marker: str) -> str:
+        value = self._pdf_values.get(marker, "").strip()
+        label = marker.strip("{}") or "AREA"
+        if value:
+            clean = " ".join(value.split())
+            if len(clean) > 24:
+                clean = clean[:21].rstrip() + "..."
+            label = f"{label}: {clean}"
+        return label
 
     def _current_loading_symbol(self):
         available = [image for image in self._loading_symbol_images if image is not None]
@@ -388,6 +693,10 @@ class PreviewPanel(ctk.CTkFrame):
 
     def _apply_zoom(self) -> None:
         self.zoom_label.configure(text=f"{self.zoom_percent}%")
+        if self._mode == "pdf":
+            if self.on_refresh:
+                self.on_refresh()
+            return
         font_size = max(8, int(11 * self.zoom_percent / 100))
         self.text.configure(font=("Segoe UI", font_size))
         self.text.tag_configure("marker", foreground="#16A34A", background="#F0FDF4", font=("Segoe UI", font_size, "bold"))
@@ -395,6 +704,9 @@ class PreviewPanel(ctk.CTkFrame):
         self._update_page_geometry()
 
     def _on_canvas_resize(self, _event=None) -> None:
+        if self._mode == "pdf":
+            self._render_pdf_canvas()
+            return
         self._update_page_geometry()
 
     def _on_mousewheel(self, event) -> str:
@@ -402,23 +714,33 @@ class PreviewPanel(ctk.CTkFrame):
         return "break"
 
     def _update_page_geometry(self) -> None:
+        self.update_idletasks()
         canvas_width = max(self.canvas.winfo_width(), 500)
         scale = self.zoom_percent / 100
-        page_width = int(620 * scale)
-        page_height = max(int(page_width * 1.414), self._estimate_content_height(page_width))
+        page_width = int(self.PAGE_BASE_WIDTH * scale)
+        a4_height = int(page_width * self.PAGE_RATIO)
+        page_height = max(a4_height, self._estimate_content_height(page_width))
         self.shadow.configure(width=page_width + 3, height=page_height + 3)
         self.shadow.grid_propagate(False)
         self.page.configure(width=page_width, height=page_height)
         self.page.grid_propagate(False)
-        pad_x = max(24, int(32 * scale))
-        pad_y = max(28, int(36 * scale))
+        pad_x = max(24, int(self.PAGE_PADDING_X * scale))
+        pad_y = max(28, int(self.PAGE_PADDING_TOP * scale))
         self.text.configure(padx=pad_x, pady=pad_y)
-        self.canvas.coords(self.page_window, max(canvas_width // 2, page_width // 2 + 24), 18)
-        self.canvas.configure(scrollregion=(0, 0, max(canvas_width, page_width + 80), page_height + 42))
+        top_margin = 18
+        bottom_margin = 24
+        self.canvas.coords(self.page_window, max(canvas_width // 2, page_width // 2 + 24), top_margin)
+        self.canvas.configure(scrollregion=(0, 0, max(canvas_width, page_width + 80), page_height + top_margin + bottom_margin))
 
     def _estimate_content_height(self, page_width: int) -> int:
         font_size = max(8, int(11 * self.zoom_percent / 100))
-        chars_per_line = max(36, int((page_width - 72) / max(5.6, font_size * 0.54)))
+        scale = self.zoom_percent / 100
+        pad_x = max(24, int(self.PAGE_PADDING_X * scale))
+        pad_top = max(28, int(self.PAGE_PADDING_TOP * scale))
+        pad_bottom = max(48, int(self.PAGE_PADDING_BOTTOM * scale))
+        usable_width = max(220, page_width - (pad_x * 2))
+        chars_per_line = max(30, int(usable_width / max(5.6, font_size * 0.54)))
         lines = self._content.splitlines() or [""]
         visual_lines = sum(max(1, math.ceil(len(line) / chars_per_line)) for line in lines)
-        return 96 + visual_lines * max(14, int(font_size * 1.8))
+        line_height = max(16, int(font_size * 1.85))
+        return pad_top + pad_bottom + visual_lines * line_height

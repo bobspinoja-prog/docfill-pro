@@ -10,7 +10,9 @@ from services.history_manager import HistoryManager
 from services.history_suggestions import HistorySuggestion, HistorySuggestions
 from services.docx_reader import DOCXReader
 from services.docx_writer import DOCXWriter
+from services.field_extractor import extract_fields, rewrite_template_with_markers
 from services.mapping_manager import MappingManager
+from services.pdf_handler import PDFHandler, PDFManualArea, pdf_support_available
 from services.semantic_replacements import build_safe_semantic_replacements
 from services.structured_logger import StructuredLogger
 from services.template_profile_store import TemplateProfileStore
@@ -44,6 +46,9 @@ class DocFillProApp(ctk.CTk):
         self.template_path: Path | None = None
         self.output_folder: Path | None = None
         self.reader: DOCXReader | None = None
+        self.pdf_handler: PDFHandler | None = None
+        self.template_kind = "docx"
+        self.pdf_area_mappings: dict[str, list[PDFManualArea]] = {}
         self.template_placeholders: set[str] = set()
         self.template_suggestions: dict[str, str] = {}
         self.template_semantic_hash: str | None = None
@@ -209,7 +214,11 @@ class DocFillProApp(ctk.CTk):
         body.grid_columnconfigure(2, weight=42, minsize=500)
         body.grid_rowconfigure(0, weight=1)
 
-        self.preview_panel = PreviewPanel(body, on_refresh=self.update_preview)
+        self.preview_panel = PreviewPanel(
+            body,
+            on_refresh=self.update_preview,
+            on_pdf_area_selected=self.handle_pdf_area_selected,
+        )
         self.preview_panel.grid(row=0, column=0, sticky="nsew")
 
         ctk.CTkFrame(body, fg_color=COLORS["border"], width=1, corner_radius=0).grid(row=0, column=1, sticky="ns")
@@ -221,6 +230,8 @@ class DocFillProApp(ctk.CTk):
                 "select_template": self.select_template,
                 "select_output": self.select_output,
                 "generate": self.generate_document,
+                "rewrite_template": self.rewrite_template_with_markers,
+                "clear_pdf_areas": self.clear_pdf_areas,
                 "clear": self.clear_form,
             },
         )
@@ -292,7 +303,7 @@ class DocFillProApp(ctk.CTk):
 
         ctk.CTkLabel(
             footer,
-            text=t("app_name") + " v1.1.0",
+            text=t("app_name") + " v1.2.0",
             text_color=COLORS["text2"],
             font=font(10),
             anchor="w",
@@ -614,6 +625,30 @@ class DocFillProApp(ctk.CTk):
             return
 
         try:
+            if self._is_pdf_template():
+                handler = self._get_pdf_handler()
+                if handler is None:
+                    return
+                analysis = handler.analyze_template()
+                lines = [f"PDF: {analysis['template']}"]
+                lines.extend(f"- {item}" for item in analysis["summary"])
+                if self.template_suggestions:
+                    lines.append(f"- Campos detectados no texto: {len(self.template_suggestions)}")
+                lines.append("")
+                lines.append("Areas selecionaveis:")
+                if analysis["areas"]:
+                    lines.extend(f"  - {area}" for area in analysis["areas"])
+                else:
+                    lines.append("  - Nenhuma area de texto detectada.")
+                if self.pdf_area_mappings:
+                    lines.append("")
+                    lines.append("Areas marcadas manualmente:")
+                    for marker, areas in self.pdf_area_mappings.items():
+                        lines.append(f"  - {marker}: {len(areas)} area(s)")
+                self._set_textbox(self.analysis_view, "\n".join(lines))
+                self._set_status("Analise PDF concluida")
+                return
+
             reader = self._get_reader()
             if reader is None:
                 return
@@ -651,6 +686,25 @@ class DocFillProApp(ctk.CTk):
             return
 
         try:
+            if self._is_pdf_template():
+                handler = self._get_pdf_handler()
+                if handler is None:
+                    return
+                analysis = handler.analyze_template()
+                pages = handler.render_pages(self.preview_panel.zoom_percent)
+                marker_count = len(analysis["placeholders"]) or len(self.template_suggestions)
+                marker_count += len(self._flatten_pdf_areas())
+                self.preview_panel.set_model_name(self.template_path.name)
+                self.preview_panel.set_marker_count(marker_count)
+                self.preview_panel.set_pdf_pages(
+                    pages,
+                    areas=self._flatten_pdf_areas(),
+                    values=self.form_panel.get_values(),
+                )
+                self._refresh_status_context()
+                self._set_status("PDF pronto")
+                return
+
             reader = self._get_reader()
             if reader is None:
                 return
@@ -670,9 +724,11 @@ class DocFillProApp(ctk.CTk):
 
     def select_template(self) -> None:
         file_path = filedialog.askopenfilename(
-            title="Selecionar Template DOCX",
+            title="Selecionar Template DOCX ou PDF",
             filetypes=[
+                ("Documentos suportados", "*.docx *.pdf"),
                 ("Word moderno (.docx)", "*.docx"),
+                ("PDF (.pdf)", "*.pdf"),
                 ("Word antigo (.doc)", "*.doc"),
                 ("Todos os arquivos", "*.*"),
             ],
@@ -703,9 +759,119 @@ class DocFillProApp(ctk.CTk):
         self._schedule_autosave_snapshot()
         self._set_status("Campos limpos")
 
+    def clear_pdf_areas(self) -> None:
+        if not self.pdf_area_mappings:
+            self._set_status("Nenhuma area PDF marcada")
+            return
+        self.pdf_area_mappings = {}
+        self._schedule_autosave_snapshot()
+        self.update_preview()
+        self.analyze_template_section()
+        self._set_status("Areas PDF limpas")
+
+    def handle_pdf_area_selected(self, page_index: int, pdf_rect: tuple[float, float, float, float], selected_text: str = "") -> None:
+        if not self._is_pdf_template():
+            return
+        default_marker = self._suggest_marker_for_pdf_selection(selected_text)
+        labels = {
+            f"{label} ({marker})": marker
+            for marker, label in FIELD_LABELS.items()
+        }
+        default_label = next((label for label, marker in labels.items() if marker == default_marker), next(iter(labels)))
+
+        window = ctk.CTkToplevel(self)
+        window.title("Marcar area PDF")
+        window.geometry("460x300")
+        window.minsize(420, 260)
+        window.configure(fg_color=COLORS["bg"])
+        window.transient(self)
+        window.grab_set()
+        window.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            window,
+            text="Area selecionada",
+            text_color=COLORS["green3"],
+            font=font(16, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 6))
+
+        preview_text = " ".join((selected_text or "Area sem texto detectado").split())
+        if len(preview_text) > 220:
+            preview_text = preview_text[:217].rstrip() + "..."
+        ctk.CTkLabel(
+            window,
+            text=preview_text,
+            text_color=COLORS["text2"],
+            font=font(11),
+            anchor="w",
+            justify="left",
+            wraplength=420,
+        ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
+
+        marker_choice = ctk.StringVar(value=default_label)
+        ctk.CTkOptionMenu(
+            window,
+            values=list(labels),
+            variable=marker_choice,
+            fg_color=COLORS["input"],
+            button_color=COLORS["green2"],
+            button_hover_color=COLORS["green"],
+            text_color=COLORS["text"],
+            dropdown_fg_color=COLORS["bg3"],
+            dropdown_text_color=COLORS["text"],
+            dropdown_hover_color=COLORS["bg4"],
+        ).grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 14))
+
+        actions = ctk.CTkFrame(window, fg_color="transparent", corner_radius=0)
+        actions.grid(row=3, column=0, sticky="ew", padx=16, pady=(4, 16))
+        actions.grid_columnconfigure(0, weight=1)
+        actions.grid_columnconfigure(1, weight=1)
+
+        def save_area() -> None:
+            marker = labels.get(marker_choice.get(), default_marker)
+            area = PDFManualArea(
+                marker=marker,
+                page_index=page_index,
+                rect=tuple(float(value) for value in pdf_rect),
+                selected_text=selected_text,
+            )
+            self.pdf_area_mappings.setdefault(marker, []).append(area)
+            self._schedule_autosave_snapshot()
+            self.update_preview()
+            self.analyze_template_section()
+            self._set_status(f"Area PDF marcada: {FIELD_LABELS.get(marker, marker)}")
+            window.destroy()
+
+        ctk.CTkButton(
+            actions,
+            text="Salvar marcador",
+            fg_color=COLORS["green2"],
+            hover_color=COLORS["green"],
+            text_color=COLORS["text"],
+            command=save_area,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ctk.CTkButton(
+            actions,
+            text=t("close"),
+            fg_color=COLORS["bg4"],
+            hover_color=COLORS["border3"],
+            text_color=COLORS["text2"],
+            command=window.destroy,
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+    def _suggest_marker_for_pdf_selection(self, selected_text: str) -> str:
+        clean_selection = " ".join((selected_text or "").split()).lower()
+        if clean_selection:
+            for marker, detection in self.template_semantic_detections.items():
+                value = " ".join((getattr(detection, "value", "") or "").split()).lower()
+                if value and (value in clean_selection or clean_selection in value):
+                    return marker
+        return "{{COMPRADOR}}"
+
     def generate_document(self) -> None:
         if not self.template_path:
-            messagebox.showerror("Erro", "Selecione um template .docx antes de gerar o documento.")
+            messagebox.showerror("Erro", "Selecione um template .docx ou .pdf antes de gerar o documento.")
             return
 
         values = self.form_panel.get_values()
@@ -723,6 +889,22 @@ class DocFillProApp(ctk.CTk):
             output_folder = Path(selected_folder)
             self.output_folder = output_folder
             self._refresh_status_context()
+
+        output_folder = Path(output_folder)
+        try:
+            output_folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror("Pasta de saída inválida", f"Não foi possível criar a pasta de saída:\n{exc}")
+            self._set_status("Pasta de saída inválida")
+            return
+        if not output_folder.is_dir():
+            messagebox.showerror("Pasta de saída inválida", "O caminho de saída selecionado não é uma pasta.")
+            self._set_status("Pasta de saída inválida")
+            return
+
+        if self._is_pdf_template():
+            self._generate_pdf_document(values, output_folder)
+            return
 
         replacements = self._build_replacements()
         self.refresh_template_mapping_view()
@@ -808,6 +990,209 @@ class DocFillProApp(ctk.CTk):
                 error=str(exc),
             )
             messagebox.showerror("Erro ao gerar", f"Não foi possível gerar o arquivo: {exc}")
+
+    def _generate_pdf_document(self, values: dict[str, str], output_folder: Path) -> None:
+        handler = self._get_pdf_handler()
+        if handler is None or self.template_path is None:
+            messagebox.showerror("Erro", "Nao foi possivel ler o PDF atual.")
+            return
+
+        comprador = values.get("{{COMPRADOR}}", "").strip()
+        sanitized_name = self._sanitize_filename(comprador)
+        output_path = self._next_available_path(Path(output_folder) / f"DECLARACAO - {sanitized_name}.pdf")
+        try:
+            report = handler.generate_filled_pdf(
+                output_path,
+                values,
+                manual_areas=self.pdf_area_mappings,
+                detections=self.template_semantic_detections,
+            )
+            summary = report.to_dict()
+            lines = [
+                f"PDF gerado com sucesso em:\n{output_path}",
+                "",
+                f"Areas manuais aplicadas: {len(summary['manual_fields'])}",
+                f"Substituicoes detectadas: {len(summary['auto_fields'])}",
+                f"Itens ignorados: {len(summary['skipped'])}",
+            ]
+            if summary["skipped"]:
+                lines.append("")
+                lines.append("Ignorados:")
+                lines.extend(f"- {item}" for item in summary["skipped"][:5])
+            if summary["warnings"]:
+                lines.append("")
+                lines.append("Avisos:")
+                lines.extend(f"- {item}" for item in summary["warnings"][:5])
+            messagebox.showinfo("Sucesso", "\n".join(lines))
+            self._record_template_profile()
+            self._record_template_usage()
+            try:
+                self.history_manager.record_document(
+                    template_name=self.template_path.name,
+                    template_hash=self.template_semantic_hash or "",
+                    output_file=output_path,
+                    document_name=output_path.name,
+                    fields=values,
+                    detected_fields={
+                        marker: detection.to_dict()
+                        for marker, detection in self.template_semantic_detections.items()
+                        if detection.value
+                    },
+                    profile_used=self.template_semantic_hash or self.template_path.name,
+                    template_path=self.template_path,
+                    output_folder=output_folder,
+                )
+            except Exception as exc:
+                self.event_logger.log(
+                    "history_record_error",
+                    level="warning",
+                    message="Falha ao registrar historico PDF",
+                    template_path=str(self.template_path),
+                    output_path=str(output_path),
+                    error=str(exc),
+                )
+            if self.template_semantic_hash:
+                self.session_store.record_export(self.template_semantic_hash, self.template_path.name, output_path)
+                self.profile_store.record_export(self.template_semantic_hash, self.template_path.name, output_path)
+            self.event_logger.log(
+                "pdf_document_generated",
+                message="PDF gerado",
+                template_path=str(self.template_path),
+                template_hash=self.template_semantic_hash,
+                output_path=str(output_path),
+                report=summary,
+            )
+            try:
+                self._save_autosave_snapshot()
+            except Exception as exc:
+                self.event_logger.log(
+                    "autosave_save_error",
+                    level="warning",
+                    message="Falha ao salvar autosave PDF",
+                    template_path=str(self.template_path),
+                    output_path=str(output_path),
+                    error=str(exc),
+                )
+            self.refresh_session_views()
+            self._set_status("PDF gerado")
+        except Exception as exc:
+            self.event_logger.log(
+                "pdf_generation_error",
+                level="error",
+                message="Falha ao gerar PDF",
+                template_path=str(self.template_path),
+                output_path=str(output_path),
+                error=str(exc),
+            )
+            messagebox.showerror("Erro ao gerar", f"Nao foi possivel gerar o PDF:\n{exc}")
+
+    def rewrite_template_with_markers(self) -> None:
+        if not self.template_path:
+            messagebox.showerror("Erro", "Selecione um template .docx ou .pdf antes de reescrever marcadores.")
+            return
+        if self._is_pdf_template():
+            self._rewrite_pdf_with_markers()
+            return
+
+        reader = self._get_reader()
+        if reader is None:
+            messagebox.showerror("Erro", "Nao foi possivel ler o template atual.")
+            return
+
+        output_folder = Path(self.output_folder or self.template_path.parent)
+        try:
+            output_folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror("Pasta de saida invalida", f"Nao foi possivel criar a pasta de saida:\n{exc}")
+            return
+
+        output_path = self._next_available_path(output_folder / f"TEMPLATE_MARCADO - {self.template_path.name}")
+        try:
+            extraction = extract_fields(reader.extract_text({}))
+            report = rewrite_template_with_markers(self.template_path, output_path, extraction)
+            summary = report.to_dict()
+            lines = [
+                f"Template marcado gerado em:\n{output_path}",
+                "",
+                f"Campos marcados: {len(summary['marked_fields'])}",
+                f"Campos em revisao: {len(summary['review_fields'])}",
+                f"Campos ignorados: {len(summary['ignored_fields'])}",
+            ]
+            if summary["ignored_fields"]:
+                lines.append("")
+                lines.append("Ignorados:")
+                lines.extend(f"- {item}" for item in summary["ignored_fields"][:6])
+            messagebox.showinfo("Template marcado", "\n".join(lines))
+            self.event_logger.log(
+                "template_rewritten_with_markers",
+                message="Template reescrito com marcadores",
+                template_path=str(self.template_path),
+                output_path=str(output_path),
+                report=summary,
+            )
+            self._set_status("Template marcado gerado")
+        except Exception as exc:
+            self.event_logger.log(
+                "template_rewrite_error",
+                level="error",
+                message="Falha ao reescrever template com marcadores",
+                template_path=str(self.template_path),
+                output_path=str(output_path),
+                error=str(exc),
+            )
+            messagebox.showerror("Erro ao reescrever", f"Nao foi possivel gerar o template marcado:\n{exc}")
+
+    def _rewrite_pdf_with_markers(self) -> None:
+        handler = self._get_pdf_handler()
+        if handler is None or self.template_path is None:
+            messagebox.showerror("Erro", "Nao foi possivel ler o PDF atual.")
+            return
+
+        output_folder = Path(self.output_folder or self.template_path.parent)
+        try:
+            output_folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror("Pasta de saida invalida", f"Nao foi possivel criar a pasta de saida:\n{exc}")
+            return
+
+        output_path = self._next_available_path(output_folder / f"TEMPLATE_MARCADO - {self.template_path.name}")
+        try:
+            report = handler.generate_marked_pdf(
+                output_path,
+                manual_areas=self.pdf_area_mappings,
+                detections=self.template_semantic_detections,
+            )
+            summary = report.to_dict()
+            lines = [
+                f"PDF marcado gerado em:\n{output_path}",
+                "",
+                f"Areas manuais marcadas: {len(summary['manual_fields'])}",
+                f"Campos detectados marcados: {len(summary['auto_fields'])}",
+                f"Itens ignorados: {len(summary['skipped'])}",
+            ]
+            if summary["skipped"]:
+                lines.append("")
+                lines.append("Ignorados:")
+                lines.extend(f"- {item}" for item in summary["skipped"][:6])
+            messagebox.showinfo("PDF marcado", "\n".join(lines))
+            self.event_logger.log(
+                "pdf_template_rewritten_with_markers",
+                message="PDF reescrito com marcadores",
+                template_path=str(self.template_path),
+                output_path=str(output_path),
+                report=summary,
+            )
+            self._set_status("PDF marcado gerado")
+        except Exception as exc:
+            self.event_logger.log(
+                "pdf_template_rewrite_error",
+                level="error",
+                message="Falha ao reescrever PDF com marcadores",
+                template_path=str(self.template_path),
+                output_path=str(output_path),
+                error=str(exc),
+            )
+            messagebox.showerror("Erro ao reescrever", f"Nao foi possivel gerar o PDF marcado:\n{exc}")
 
     def save_mapping(self) -> None:
         if self.custom_marker is None or self.custom_value is None:
@@ -977,6 +1362,10 @@ class DocFillProApp(ctk.CTk):
             for marker, detection in self.template_semantic_detections.items()
             if detection.value
         }
+        pdf_area_data = {
+            marker: [area.to_dict() for area in areas]
+            for marker, areas in self.pdf_area_mappings.items()
+        }
         self.session_store.save_autosave(
             self.template_path,
             self.template_path.name,
@@ -985,6 +1374,7 @@ class DocFillProApp(ctk.CTk):
             values,
             current_view="main",
             detected_fields=detected_fields,
+            pdf_area_mappings=pdf_area_data,
         )
         self.session_store.set_last_template(
             self.template_path,
@@ -1039,6 +1429,18 @@ class DocFillProApp(ctk.CTk):
         values = autosave.get("values", {})
         if isinstance(values, dict):
             self.form_panel.set_values({str(key): str(value) for key, value in values.items()}, only_empty=False)
+        pdf_area_data = autosave.get("pdf_area_mappings", {})
+        if isinstance(pdf_area_data, dict):
+            restored_areas: dict[str, list[PDFManualArea]] = {}
+            for marker, areas in pdf_area_data.items():
+                if not isinstance(areas, list):
+                    continue
+                restored_areas[str(marker)] = [
+                    PDFManualArea.from_dict({"marker": str(marker), **area})
+                    for area in areas
+                    if isinstance(area, dict)
+                ]
+            self.pdf_area_mappings = {marker: areas for marker, areas in restored_areas.items() if areas}
         output_folder = autosave.get("output_folder", "")
         if output_folder:
             self.output_folder = Path(str(output_folder))
@@ -1225,6 +1627,7 @@ class DocFillProApp(ctk.CTk):
         self.template_semantic_detections = {}
         self.semantic_generation_warnings = []
         self.last_safe_semantic_result = None
+        self.pdf_area_mappings = {}
         self._visible_history_suggestions.clear()
         self._last_history_suggestion_signature = None
         self.form_panel.clear_history_suggestions()
@@ -1233,6 +1636,10 @@ class DocFillProApp(ctk.CTk):
     def load_template(self, file_path: str | Path, show_errors: bool = True) -> None:
         path = Path(file_path)
         if not path.exists():
+            self.template_path = None
+            self.reader = None
+            self.pdf_handler = None
+            self.template_kind = "docx"
             self._reset_template_semantics()
             message = f"Template não encontrado:\n{path}"
             self._set_status("Template não encontrado")
@@ -1246,6 +1653,8 @@ class DocFillProApp(ctk.CTk):
         if validation_error:
             self.template_path = None
             self.reader = None
+            self.pdf_handler = None
+            self.template_kind = "docx"
             self.template_placeholders = set()
             self.template_suggestions = {}
             self._reset_template_semantics()
@@ -1258,8 +1667,15 @@ class DocFillProApp(ctk.CTk):
                 messagebox.showerror("Arquivo Word não suportado", validation_error)
             return
 
+        if path.suffix.lower() == ".pdf":
+            self._load_pdf_template(path, show_errors=show_errors)
+            return
+
         self.template_path = path
         self.reader = DOCXReader(path)
+        self.pdf_handler = None
+        self.template_kind = "docx"
+        self.pdf_area_mappings = {}
         try:
             self._state_sync_suspended = True
             self.preview_panel.set_loading(t("loading_template"))
@@ -1320,8 +1736,11 @@ class DocFillProApp(ctk.CTk):
             else:
                 self._set_status("Template carregado")
         except Exception as exc:
+            self.template_path = None
+            self.reader = None
             self.template_suggestions = {}
             self._reset_template_semantics()
+            self._refresh_status_context()
             self.preview_panel.set_text(f"Não foi possível carregar o template:\n{exc}")
             self.preview_panel.set_model_name("Template inválido")
             self.preview_panel.set_marker_count(0)
@@ -1335,6 +1754,100 @@ class DocFillProApp(ctk.CTk):
             )
             if show_errors:
                 messagebox.showerror("Erro ao carregar", f"Não foi possível carregar o template:\n{exc}")
+        finally:
+            self._state_sync_suspended = False
+
+    def _load_pdf_template(self, path: Path, show_errors: bool = True) -> None:
+        self.template_path = path
+        self.reader = None
+        self.pdf_handler = PDFHandler(path)
+        self.template_kind = "pdf"
+        self.pdf_area_mappings = {}
+        try:
+            self._state_sync_suspended = True
+            self.preview_panel.set_loading(t("loading_template"))
+            self.update_idletasks()
+            analysis = self.pdf_handler.analyze_template()
+            self.template_placeholders = {
+                marker
+                for marker in analysis.get("placeholders", [])
+                if isinstance(marker, str) and marker.startswith("{{") and marker.endswith("}}")
+            }
+            self.template_semantic_hash = PDFHandler.template_hash(path)
+            auto_detections = self.pdf_handler.detect_fields()
+            saved_profile = self.semantic_analyzer.load_template_mapping(self.template_semantic_hash)
+            accepted = saved_profile.get("accepted", {}) if isinstance(saved_profile, dict) else {}
+            self.template_semantic_detections = dict(auto_detections)
+            for field, data in accepted.items():
+                if field in FIELD_LABELS and isinstance(data, dict):
+                    detection = SemanticDetection.from_dict(data)
+                    if detection.value:
+                        self.template_semantic_detections[field] = detection
+            self.template_semantic_auto_detections = dict(auto_detections)
+            self.semantic_analyzer.save_detections(
+                self.template_semantic_hash,
+                path.name,
+                auto_detections,
+                self.template_semantic_detections,
+            )
+            self.semantic_generation_warnings = []
+            semantic_suggestions = self.semantic_analyzer.suggestion_values(self.template_semantic_detections)
+            legacy_suggestions = self.pdf_handler.suggest_values()
+            self.template_suggestions = dict(semantic_suggestions)
+            for marker, value in legacy_suggestions.items():
+                self.template_suggestions.setdefault(marker, value)
+
+            detected = self.form_panel.set_detected_values(self.template_semantic_detections, only_empty=True)
+            legacy_only = {
+                marker: value
+                for marker, value in legacy_suggestions.items()
+                if marker not in semantic_suggestions
+            }
+            detected += self.form_panel.set_values(legacy_only, only_empty=True)
+            self.update_preview()
+            self.analyze_template_section()
+            self.refresh_template_mapping_view()
+            self._state_sync_suspended = False
+            self._record_template_profile()
+            self._record_template_usage()
+            self._schedule_autosave_snapshot()
+            self._schedule_history_suggestions_update()
+            self.refresh_session_views()
+            self.event_logger.log(
+                "pdf_template_loaded",
+                message="PDF carregado",
+                template_path=str(self.template_path),
+                template_hash=self.template_semantic_hash,
+                placeholders=len(self.template_placeholders),
+                detected_fields=len(self.template_suggestions),
+                pages=analysis.get("pages", 0),
+                text_blocks=analysis.get("text_blocks", 0),
+            )
+            if self.template_suggestions:
+                self._set_status(f"PDF carregado: {detected} campos detectados")
+            else:
+                self._set_status("PDF carregado")
+        except Exception as exc:
+            self.template_path = None
+            self.reader = None
+            self.pdf_handler = None
+            self.template_kind = "docx"
+            self.template_suggestions = {}
+            self._reset_template_semantics()
+            self._refresh_status_context()
+            self.preview_panel.set_text(f"Nao foi possivel carregar o PDF:\n{exc}")
+            self.preview_panel.set_model_name("PDF invalido")
+            self.preview_panel.set_marker_count(0)
+            self._set_status("Erro ao carregar PDF")
+            self.event_logger.log(
+                "pdf_template_load_error",
+                level="error",
+                message="Falha ao carregar PDF",
+                template_path=str(path),
+                error=str(exc),
+            )
+            if show_errors:
+                messagebox.showerror("Erro ao carregar", f"Nao foi possivel carregar o PDF:\n{exc}")
         finally:
             self._state_sync_suspended = False
 
@@ -1399,11 +1912,27 @@ class DocFillProApp(ctk.CTk):
                 self.form_panel.clear_history_suggestion(marker)
 
     def _get_reader(self) -> DOCXReader | None:
-        if self.template_path is None:
+        if self.template_path is None or self.template_kind == "pdf":
             return None
         if self.reader is None:
             self.reader = DOCXReader(self.template_path)
         return self.reader
+
+    def _get_pdf_handler(self) -> PDFHandler | None:
+        if self.template_path is None or self.template_kind != "pdf":
+            return None
+        if self.pdf_handler is None:
+            self.pdf_handler = PDFHandler(self.template_path)
+        return self.pdf_handler
+
+    def _is_pdf_template(self) -> bool:
+        return self.template_kind == "pdf"
+
+    def _flatten_pdf_areas(self) -> list[PDFManualArea]:
+        areas: list[PDFManualArea] = []
+        for marker_areas in self.pdf_area_mappings.values():
+            areas.extend(marker_areas)
+        return areas
 
     def _build_replacements(self) -> dict[str, str]:
         values = self.form_panel.get_values()
@@ -1484,8 +2013,12 @@ class DocFillProApp(ctk.CTk):
                 "Arquivos .doc antigos não são suportados diretamente.\n\n"
                 "Abra no Microsoft Word e salve como .docx, depois adicione o novo arquivo."
             )
+        if path.suffix.lower() == ".pdf":
+            if not pdf_support_available():
+                return "Suporte a PDF indisponivel. Instale PyMuPDF para abrir arquivos .pdf."
+            return None
         if path.suffix.lower() != ".docx":
-            return "Selecione um arquivo Word no formato .docx."
+            return "Selecione um arquivo Word no formato .docx ou um PDF no formato .pdf."
         return None
 
     def close_app(self) -> None:

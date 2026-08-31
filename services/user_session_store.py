@@ -30,6 +30,7 @@ class UserSessionStore(RuntimeJsonStore):
         values: dict[str, str],
         current_view: str = "main",
         detected_fields: dict[str, Any] | None = None,
+        pdf_area_mappings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         data = self.load()
         data["autosave"] = {
@@ -39,6 +40,7 @@ class UserSessionStore(RuntimeJsonStore):
             "output_folder": str(output_folder) if output_folder else "",
             "values": dict(values),
             "detected_fields": dict(detected_fields or {}),
+            "pdf_area_mappings": dict(pdf_area_mappings or {}),
             "current_view": current_view,
             "updated_at": self._now(),
         }

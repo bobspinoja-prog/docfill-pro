@@ -4,6 +4,8 @@ from typing import Any
 
 from docx import Document
 
+from services.field_extractor import extract_fields
+
 
 PLACEHOLDER_PATTERN = re.compile(r"\{\{[^{}]+\}\}")
 
@@ -49,7 +51,7 @@ class DOCXReader:
     def suggest_values(self) -> dict[str, str]:
         """Extrai valores editáveis de documentos já preenchidos."""
         text = "\n".join(self._get_preview_blocks())
-        suggestions: dict[str, str] = {}
+        suggestions: dict[str, str] = extract_fields(text).as_marker_values(min_confidence=0.60)
 
         declaration_pattern = re.compile(
             r"(?P<comprador>[^,\n]+),\s*"
@@ -69,7 +71,7 @@ class DOCXReader:
                 if group_name in match.groupdict():
                     value = self._normalize_spaces(match.group(group_name))
                     if value:
-                        suggestions[marker] = value
+                        suggestions.setdefault(marker, value)
 
         date_pattern = re.compile(
             r"(?P<cidade>[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ '-]{1,80}),\s*"
