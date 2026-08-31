@@ -21,11 +21,9 @@ def resource_root() -> Path:
 
 
 def app_root() -> Path:
-    if getattr(sys, "frozen", False):
-        local_app_data = os.getenv("LOCALAPPDATA")
-        base_dir = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
-        return base_dir / APP_NAME
-    return repo_root()
+    local_app_data = os.getenv("LOCALAPPDATA")
+    base_dir = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
+    return base_dir / APP_NAME
 
 
 def data_dir() -> Path:

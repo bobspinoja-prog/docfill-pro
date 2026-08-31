@@ -22,7 +22,6 @@ from services.template_profile_store import TemplateProfileStore
 from services.semantic_replacements import build_safe_semantic_replacements
 from services.template_semantic_analyzer import SemanticDetection, TemplateSemanticAnalyzer
 from services.user_session_store import UserSessionStore
-from services.user_settings_store import UserSettingsStore
 from ui.main_window import DocFillProApp
 
 
@@ -313,43 +312,14 @@ def test_mapping_seed_and_build_files_are_present() -> None:
     assert "template_semantic_mappings.json" in (ROOT / "DOCFILL PRO.spec").read_text(encoding="utf-8")
     assert "template_semantic_mappings.json" in (ROOT / "installer" / "DOCFILL_PRO_Inno.iss").read_text(encoding="utf-8")
     assert (ROOT / "data" / "template_profiles.json").exists()
-    assert (ROOT / "data" / "user_settings.json").exists()
     assert (ROOT / "data" / "history.json").exists()
     assert (ROOT / "data" / "user_session.json").exists()
     assert "template_profiles.json" in (ROOT / "DOCFILL PRO.spec").read_text(encoding="utf-8")
-    assert "user_settings.json" in (ROOT / "DOCFILL PRO.spec").read_text(encoding="utf-8")
     assert "history.json" in (ROOT / "DOCFILL PRO.spec").read_text(encoding="utf-8")
     assert "user_session.json" in (ROOT / "DOCFILL PRO.spec").read_text(encoding="utf-8")
     assert "template_profiles.json" in (ROOT / "installer" / "DOCFILL_PRO_Inno.iss").read_text(encoding="utf-8")
-    assert "user_settings.json" in (ROOT / "installer" / "DOCFILL_PRO_Inno.iss").read_text(encoding="utf-8")
     assert "history.json" in (ROOT / "installer" / "DOCFILL_PRO_Inno.iss").read_text(encoding="utf-8")
     assert "user_session.json" in (ROOT / "installer" / "DOCFILL_PRO_Inno.iss").read_text(encoding="utf-8")
-
-
-def test_user_settings_store_tracks_autosave_and_history() -> None:
-    with TemporaryDirectory() as tmp:
-        store = UserSettingsStore(Path(tmp) / "user_settings.json")
-        template_path = Path(tmp) / "template.docx"
-        output_path = Path(tmp) / "output.docx"
-
-        store.set_last_template(template_path, template_path.name, "hash-123", {"{{COMPRADOR}}": "EDUARDO"})
-        store.set_last_output_folder(Path(tmp) / "saida")
-        store.save_autosave(
-            template_path,
-            template_path.name,
-            "hash-123",
-            Path(tmp) / "saida",
-            {"{{COMPRADOR}}": "EDUARDO"},
-            markers=["{{COMPRADOR}}"],
-        )
-        store.record_export("hash-123", template_path.name, output_path)
-
-        reloaded = UserSettingsStore(Path(tmp) / "user_settings.json")
-        autosave = reloaded.load_autosave()
-        assert autosave is not None
-        assert autosave["template_name"] == template_path.name
-        assert reloaded.get_recent_templates()[0]["hash"] == "hash-123"
-        assert reloaded.get_recent_exports()[0]["output_path"] == str(output_path)
 
 
 def test_history_manager_records_and_filters_documents() -> None:
@@ -506,7 +476,6 @@ def main() -> None:
         test_safe_semantic_replacements_block_ambiguous_name,
         test_safe_semantic_replacements_allow_unique_cpf_and_dates,
         test_mapping_seed_and_build_files_are_present,
-        test_user_settings_store_tracks_autosave_and_history,
         test_history_manager_records_and_filters_documents,
         test_history_suggestions_cover_matching_and_conflicts,
         test_template_profile_store_tracks_corrections,

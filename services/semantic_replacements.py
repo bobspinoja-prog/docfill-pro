@@ -170,11 +170,7 @@ def _safe_matches(field: str, source: str, document_text: str) -> list[re.Match[
         return []
 
     escaped = re.escape(source)
-    boundary = r"(?<![0-9A-Za-zÀ-ÿ])" + escaped + r"(?![0-9A-Za-zÀ-ÿ])"
-    if FIELD_KIND.get(field) in {"id", "lot", "date"}:
-        pattern = boundary
-    else:
-        pattern = boundary
+    pattern = r"(?<![0-9A-Za-zÀ-ÿ])" + escaped + r"(?![0-9A-Za-zÀ-ÿ])"
 
     matches = list(re.finditer(pattern, document_text, flags=re.IGNORECASE))
     if FIELD_KIND.get(field) == "name":

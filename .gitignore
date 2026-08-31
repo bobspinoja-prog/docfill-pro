@@ -12,3 +12,6 @@ test_outputs/
 .venv/
 .vscode/
 *.log
+logs/
+*.jsonl
+.pytest_cache/
