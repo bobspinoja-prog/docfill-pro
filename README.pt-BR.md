@@ -66,21 +66,22 @@ services/                    extração, geração de PDF/DOCX, persistência �
   pdf_handler.py              extração, renderização e preenchimento de PDF
   history_manager.py / history_suggestions.py   histórico de documentos e sugestões entre documentos
   runtime_json_store.py       store JSON simples com escrita atômica, cache por mtime e semente do bundle
-ui/                           widgets CustomTkinter (janela principal, formulário, preview, histórico)
+ui/                           widgets CustomTkinter
+  main_window.py               shell do app + orquestração (carregar template, gerar, autosave)
+  settings_window.py / history_window.py / about_window.py   diálogos autocontidos
+  pdf_area_dialog.py           modal para mapear uma área arrastada do PDF a um campo
+  form_panel.py / preview_panel.py   os dois painéis principais
 tests/                        suíte de testes pytest
 data/                         arquivos-semente vazios por padrão, copiados no primeiro uso
 ```
 
 ## Como funciona a detecção de campos
 
-O documento é dividido em seções (preâmbulo, corpo, parágrafo final, bloco de assinaturas) usando frases-âncora conhecidas (`RECEBI`, `Assim, por todo o exposto`, uma linha final de "*cidade*, *data*"). Cada campo então é buscado na seção certa com um padrão específico para onde aquele campo de fato aparece nesse tipo de declaração — por exemplo, o nome do vendedor é procurado logo após uma cláusula de aquisição no preâmbulo, confirmado de novo no bloco de assinaturas, e marcado como conflito se o parágrafo final citar outra pessoa. Todo valor detectado carrega uma pontuação de confiança e o trecho que o originou, e só valores acima de um limite são usados para reescrever com segurança o documento original com `{{MARCADORES}}`.
+O documento é dividido em seções (preâmbulo, corpo, parágrafo final, bloco de assinaturas) usando frases-âncora conhecidas (`RECEBI`, `Assim, por todo o exposto`, uma linha final de "*cidade*, *data*"). Cada campo então é buscado na seção certa com um padrão específico para onde aquele campo de fato aparece nesse tipo de declaração — por exemplo, o nome do vendedor é procurado logo após uma cláusula de aquisição no preâmbulo, confirmado de novo no bloco de assinaturas, e marcado como conflito se o parágrafo final citar outra pessoa. Uma segunda passagem, de confiança mais baixa, cobre redações que a passagem estruturada não pega (nome do comprador que não vem logo no início do preâmbulo, lote/quadra citado sem o contexto completo "na qualidade de COMPRADOR do Lote..."...). Todo valor detectado carrega uma pontuação de confiança e o trecho que o originou, e só valores acima de um limite são usados para reescrever com segurança o documento original com `{{MARCADORES}}`.
 
-## Limitações conhecidas / próximos passos
+## Limitações conhecidas
 
-Este projeto foi construído sob medida para uma família específica de declarações de compra e venda de imóvel no Brasil — tanto o formulário fixo de 11 campos quanto as heurísticas de detecção assumem esse formato de documento, então a precisão cai rápido em um contrato com redação diferente. Duas frentes de refatoração ficam registradas para quem for continuar:
-
-- `field_extractor.py` e `template_semantic_analyzer.py` hoje rodam duas passagens de detecção sobrepostas para os mesmos campos; deveriam compartilhar um único motor.
-- `ui/main_window.py` mistura construção de interface com orquestração de negócio numa única classe grande; separar os diálogos (ajustes, histórico, seletor de área em PDF) em módulos próprios facilitaria muito estender o app.
+Este projeto foi construído sob medida para uma família específica de declarações de compra e venda de imóvel no Brasil — tanto o formulário fixo de 11 campos quanto as heurísticas de detecção assumem esse formato de documento, então a precisão cai rápido em um contrato com redação diferente. `field_extractor.py` é o único motor de detecção (antes era duplicado com `template_semantic_analyzer.py`); generalizar para outros formatos de documento significaria tornar as âncoras de seção e os padrões estruturados configuráveis em vez de fixos no código.
 
 ## Licença
 

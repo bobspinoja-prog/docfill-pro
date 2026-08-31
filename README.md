@@ -66,21 +66,22 @@ services/                    extraction, PDF/DOCX generation, persistence — no
   pdf_handler.py              PDF text extraction, rendering, and in-place filling
   history_manager.py / history_suggestions.py   past-document store and cross-document suggestions
   runtime_json_store.py       small JSON store with atomic writes, mtime caching, and bundle seeding
-ui/                           CustomTkinter widgets (main window, form, preview, history)
+ui/                           CustomTkinter widgets
+  main_window.py               app shell + orchestration (template loading, generation, autosave)
+  settings_window.py / history_window.py / about_window.py   self-contained dialogs
+  pdf_area_dialog.py           modal for mapping a dragged PDF area to a field
+  form_panel.py / preview_panel.py   the two main panels
 tests/                        pytest suite
 data/                         empty-by-default seed files copied on first run
 ```
 
 ## How field detection works
 
-A document is split into sections (preamble, body, closing paragraph, signature block) using known anchor phrases (`RECEBI`, `Assim, por todo o exposto`, a trailing "*city*, *date*" line). Each field is then matched against a section with a pattern specific to where that field actually appears in this type of declaration — for example, the seller's name is looked for right after an acquisition clause in the preamble, confirmed again in the signature block, and flagged as a conflict if the closing paragraph names someone else. Every detected value carries a confidence score and the snippet that produced it, and only values above a threshold are used to safely rewrite the original document with `{{MARKERS}}`.
+A document is split into sections (preamble, body, closing paragraph, signature block) using known anchor phrases (`RECEBI`, `Assim, por todo o exposto`, a trailing "*city*, *date*" line). Each field is then matched against a section with a pattern specific to where that field actually appears in this type of declaration — for example, the seller's name is looked for right after an acquisition clause in the preamble, confirmed again in the signature block, and flagged as a conflict if the closing paragraph names someone else. A second, lower-confidence fallback pass covers phrasing the structured pass misses (buyer name not at the very start of the preamble, a lot/block mentioned without the full "na qualidade de COMPRADOR do Lote..." context, ...). Every detected value carries a confidence score and the snippet that produced it, and only values above a threshold are used to safely rewrite the original document with `{{MARKERS}}`.
 
-## Known limitations / roadmap
+## Known limitations
 
-This was purpose-built around one family of Brazilian real-estate purchase declarations — the fixed 11-field form and the detection heuristics both assume that shape of document, so accuracy drops fast on a differently worded contract. Two refactors are on the list for anyone picking this up:
-
-- `field_extractor.py` and `template_semantic_analyzer.py` currently run two overlapping detection passes for the same fields; they should share one engine.
-- `ui/main_window.py` mixes UI construction with business orchestration in one large class; splitting the dialogs (settings, history, PDF area picker) into their own modules would make it much easier to extend.
+This was purpose-built around one family of Brazilian real-estate purchase declarations — the fixed 11-field form and the detection heuristics both assume that shape of document, so accuracy drops fast on a differently worded contract. `field_extractor.py` is the single detection engine (it used to be duplicated with `template_semantic_analyzer.py`); generalizing it to other document shapes would mean making the section anchors and structured patterns configurable rather than hardcoded.
 
 ## License
 
