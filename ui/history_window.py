@@ -194,12 +194,16 @@ class HistoryWindow(ctk.CTkToplevel):
             row = ctk.CTkFrame(self.list_frame, fg_color=COLORS["bg4"] if record.get("id") != self.selected_record_id else COLORS["green2"], corner_radius=6)
             row.grid(row=index, column=0, sticky="ew", padx=8, pady=(8 if index == 0 else 0, 8))
             row.grid_columnconfigure(0, weight=1)
-            row.bind("<Button-1>", lambda _e, item=record: self.select_record(item))
 
             title = f"{'★ ' if record.get('favorite') else ''}{record.get('document_name') or record.get('template_name') or t('history_unknown')}"
-            ctk.CTkLabel(row, text=title, text_color=COLORS["text"], font=font(11, "bold"), anchor="w").grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 2))
+            title_label = ctk.CTkLabel(row, text=title, text_color=COLORS["text"], font=font(11, "bold"), anchor="w")
+            title_label.grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 2))
             subtitle = f"{record.get('template_name', '')} | {record.get('timestamp', '')}"
-            ctk.CTkLabel(row, text=subtitle, text_color=COLORS["text3"], font=font(9), anchor="w").grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+            subtitle_label = ctk.CTkLabel(row, text=subtitle, text_color=COLORS["text3"], font=font(9), anchor="w")
+            subtitle_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+
+            for widget in (row, title_label, subtitle_label):
+                widget.bind("<Button-1>", lambda _e, item=record: self.select_record(item))
 
         if self.selected_record_id is None and self.records:
             self.select_record(self.records[0])
