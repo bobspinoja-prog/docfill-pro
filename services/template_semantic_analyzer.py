@@ -28,11 +28,6 @@ FIELD_LABELS = {
 }
 
 SUPPORTED_FIELDS = tuple(FIELD_LABELS)
-LETTER_RANGE = r"A-Za-z\u00C0-\u017F"
-UPPER_RANGE = r"A-Z\u00C0-\u00DE"
-CPF_CNPJ_PATTERN = r"(?:\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2}|[\d./-]{11,20})"
-DATE_PATTERN = rf"\d{{1,2}}\s+de\s+[{LETTER_RANGE}]+\s+de\s+\d{{4}}"
-NAME_PATTERN = rf"[{UPPER_RANGE}][{UPPER_RANGE}0-9&.'\- ]{{3,120}}"
 
 
 @dataclass
@@ -72,8 +67,6 @@ class TemplateSemanticAnalyzer(RuntimeJsonStore):
         auto_detections: dict[str, SemanticDetection] = {}
         self._detect_placeholders(full_text, auto_detections)
         self._detect_semantic_fields(full_text, auto_detections)
-        self._detect_structured_declaration(full_text, auto_detections)
-        self._detect_contextual_fields(full_text, auto_detections)
 
         saved = self.load_template_mapping(template_hash)
         accepted = saved.get("accepted", {}) if isinstance(saved, dict) else {}
@@ -184,112 +177,6 @@ class TemplateSemanticAnalyzer(RuntimeJsonStore):
                 item.confidence,
                 item.source,
                 item.evidence,
-            )
-
-    def _detect_structured_declaration(self, text: str, detections: dict[str, SemanticDetection]) -> None:
-        pattern = re.compile(
-            rf"(?P<comprador>{NAME_PATTERN}),\s*"
-            rf"(?P<nacionalidade>[{LETTER_RANGE} ]{{4,40}}),\s*"
-            rf"(?P<profissao>[{LETTER_RANGE}0-9 .'\-/]{{3,70}}),\s*"
-            rf"(?P<estado_civil>[{LETTER_RANGE} ]{{4,45}}),\s*"
-            rf"portador(?:a)?\s+do\s+(?:CPF|CNPJ)\s+n?[\u00ba\u00b0o.]?\s*(?P<cpf>{CPF_CNPJ_PATTERN})"
-            rf".{{0,180}}?\bLote\s+(?P<lote>[A-Z0-9][A-Z0-9./\-]*)"
-            rf"\s+Quadra\s+(?P<quadra>[A-Z0-9][A-Z0-9./\-]*)"
-            rf"\s+do\s+(?P<empreendimento>{NAME_PATTERN})(?=,|\s+adquirido|\.)"
-            rf".{{0,180}}?do\(a\)\s+(?P<vendedor>{NAME_PATTERN})(?=,|\s+para|\.)",
-            re.IGNORECASE | re.DOTALL,
-        )
-        match = pattern.search(text)
-        if not match:
-            return
-
-        fields = {
-            "comprador": "{{COMPRADOR}}",
-            "nacionalidade": "{{NACIONALIDADE}}",
-            "profissao": "{{PROFISSAO}}",
-            "estado_civil": "{{ESTADO_CIVIL}}",
-            "cpf": "{{CPF_CNPJ}}",
-            "lote": "{{LOTE}}",
-            "quadra": "{{QUADRA}}",
-            "empreendimento": "{{EMPREENDIMENTO}}",
-            "vendedor": "{{VENDEDOR}}",
-        }
-        for group, field in fields.items():
-            confidence = 0.94 if group in {"cpf", "lote", "quadra"} else 0.9
-            self._add_detection(
-                detections,
-                field,
-                match.group(group),
-                confidence,
-                "context: qualificacao estruturada",
-                self._snippet(text, match.start(group), match.end(group)),
-            )
-
-    def _detect_contextual_fields(self, text: str, detections: dict[str, SemanticDetection]) -> None:
-        context_patterns = [
-            (
-                "{{COMPRADOR}}",
-                rf"(?:permituta|permuta|permutante|comprador(?:a)?|adquirente)\s+(?:do\(a\)\s+|da\s+|do\s+)?(?P<value>{NAME_PATTERN})(?=,|\s+portador|\s+na\s+qualidade|\.|\n|$)",
-                0.88,
-                "context: permituta do(a)",
-            ),
-            (
-                "{{CPF_CNPJ}}",
-                rf"(?:CPF|CNPJ)\s+n?[\u00ba\u00b0o.]?\s*(?P<value>{CPF_CNPJ_PATTERN})",
-                0.86,
-                "context: CPF/CNPJ",
-            ),
-            ("{{LOTE}}", r"\bLote\s+(?P<value>[A-Z0-9][A-Z0-9./\-]*)", 0.92, "context: Lote"),
-            ("{{QUADRA}}", r"\bQuadra\s+(?P<value>[A-Z0-9][A-Z0-9./\-]*)", 0.92, "context: Quadra"),
-            (
-                "{{EMPREENDIMENTO}}",
-                rf"(?P<value>(?:LOTEAMENTO|CONDOM[\u00cdI]NIO|RESIDENCIAL|EDIF[\u00cdI]CIO|ALPHAVILLE)[{UPPER_RANGE}0-9 .'/-]{{6,120}})(?=,|\.|\s+adquirido|\s+localizado|\n|$)",
-                0.86,
-                "context: empreendimento",
-            ),
-            (
-                "{{VENDEDOR}}",
-                rf"(?:adquirido|alienado|cedido|vendido).{{0,80}}?do\(a\)\s+(?P<value>{NAME_PATTERN})(?=,|\s+para|\.)",
-                0.86,
-                "context: adquirido do(a)",
-            ),
-            ("{{DATA}}", rf"(?P<value>{DATE_PATTERN})", 0.82, "context: data por extenso"),
-        ]
-
-        for field, pattern, confidence, source in context_patterns:
-            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-            if not match:
-                continue
-            self._add_detection(
-                detections,
-                field,
-                match.group("value"),
-                confidence,
-                source,
-                self._snippet(text, match.start("value"), match.end("value")),
-            )
-
-        city_date = re.search(
-            rf"(?P<cidade>[{UPPER_RANGE}][{UPPER_RANGE} .'/-]{{2,80}}),\s*(?P<data>{DATE_PATTERN})",
-            text,
-            re.IGNORECASE,
-        )
-        if city_date:
-            self._add_detection(
-                detections,
-                "{{CIDADE}}",
-                city_date.group("cidade"),
-                0.9,
-                "context: cidade antes da data",
-                self._snippet(text, city_date.start("cidade"), city_date.end("cidade")),
-            )
-            self._add_detection(
-                detections,
-                "{{DATA}}",
-                city_date.group("data"),
-                0.92,
-                "context: data apos cidade",
-                self._snippet(text, city_date.start("data"), city_date.end("data")),
             )
 
     def _add_detection(

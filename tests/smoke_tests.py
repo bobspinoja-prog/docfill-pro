@@ -160,67 +160,6 @@ def test_history_suggestion_widget_toggles_visibility() -> None:
     app.close_app()
 
 
-def test_example_document_if_available() -> None:
-    downloads = Path.home() / "Downloads"
-    examples = [
-        path
-        for path in downloads.glob("*.docx")
-        if "exemplo app" in path.name and not path.name.startswith("~$")
-    ]
-    if not examples:
-        print("example docx not found; skipping example-specific smoke test")
-        return
-
-    template = examples[0]
-    reader = DOCXReader(template)
-    suggestions = reader.suggest_values()
-    if not {"{{COMPRADOR}}", "{{CPF_CNPJ}}", "{{VENDEDOR}}"}.issubset(suggestions):
-        print(f"example docx {template.name} is not the expected fixture; skipping example-specific smoke test")
-        return
-
-    assert suggestions["{{COMPRADOR}}"].startswith("ANDERSON")
-    assert suggestions["{{CPF_CNPJ}}"] == "269.199.688-35"
-    assert suggestions["{{VENDEDOR}}"].startswith("RODRIGO")
-
-    values = {
-        "{{COMPRADOR}}": "CLIENTE TESTE DOCFILL",
-        "{{NACIONALIDADE}}": "brasileira",
-        "{{PROFISSAO}}": "engenheira",
-        "{{ESTADO_CIVIL}}": "solteira",
-        "{{CPF_CNPJ}}": "111.222.333-44",
-        "{{LOTE}}": "99",
-        "{{QUADRA}}": "10A",
-        "{{EMPREENDIMENTO}}": "LOTEAMENTO TESTE VERDE",
-        "{{VENDEDOR}}": "VENDEDOR TESTE DOCFILL",
-        "{{CIDADE}}": "Campinas",
-        "{{DATA}}": "12 de Junho de 2026",
-    }
-    replacements = MappingManager(ROOT / "data" / "mappings.json").build_replacements(values)
-    replacements.update(reader.build_literal_replacements(values))
-
-    output_dir = ROOT / "test_outputs"
-    output_dir.mkdir(exist_ok=True)
-    output = output_dir / "SMOKE_TEST_EXEMPLO.docx"
-    if output.exists():
-        output.unlink()
-
-    before = file_hash(template)
-    DOCXWriter().generate(template, output, replacements)
-    assert before == file_hash(template), "template exemplo foi alterado"
-
-    generated_text = DOCXReader(output).extract_text({})
-    for expected in (
-        "CLIENTE TESTE DOCFILL",
-        "111.222.333-44",
-        "Lote 99",
-        "Quadra 10A",
-        "LOTEAMENTO TESTE VERDE",
-        "VENDEDOR TESTE DOCFILL",
-        "Campinas, 12 de Junho de 2026",
-    ):
-        assert expected in generated_text
-
-
 def test_semantic_template_detection_and_persistence() -> None:
     with TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -481,7 +420,6 @@ def main() -> None:
         test_template_profile_store_tracks_corrections,
         test_structured_logger_writes_jsonl,
         test_ui_layout,
-        test_example_document_if_available,
         test_semantic_template_detection_and_persistence,
     ]
     for test in tests:

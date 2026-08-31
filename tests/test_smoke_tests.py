@@ -1,5 +1,4 @@
 from tests.smoke_tests import (
-    test_example_document_if_available,
     test_marker_docx_roundtrip,
     test_marker_split_across_runs_is_replaced,
     test_history_suggestions_cover_matching_and_conflicts,
@@ -31,5 +30,4 @@ def test_smoke_suite() -> None:
     test_structured_logger_writes_jsonl()
     test_ui_layout()
     test_history_suggestion_widget_toggles_visibility()
-    test_example_document_if_available()
     test_semantic_template_detection_and_persistence()

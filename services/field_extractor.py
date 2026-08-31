@@ -158,6 +158,7 @@ def extract_fields(text: str) -> FieldExtractionResult:
     _extract_property(sections, index_map, normalized, fields)
     _extract_seller(sections, index_map, normalized, fields)
     _extract_city_date(sections, index_map, normalized, fields)
+    _extract_fallback_context(sections, index_map, normalized, fields)
     _cross_validate(sections, index_map, normalized, fields)
 
     return FieldExtractionResult(
@@ -414,7 +415,7 @@ def _extract_seller(
 ) -> None:
     preambulo = sections.get("preambulo")
     clause_patterns = (
-        rf"(?i:adquirido\s+(?:atrav[\u00E9e]s\s+de\s+)?).{{0,220}}?"
+        rf"(?i:(?:adquirido|alienado|cedido|vendido)\s+(?:atrav[\u00E9e]s\s+de\s+)?).{{0,220}}?"
         rf"(?i:do\(a\)|da|do)\s+(?i:Sr\.?\(a\)\.?\s*)?(?P<vendedor>{PERSON_NAME_PATTERN})",
         rf"(?i:(?:compra\s+e\s+venda|promessa\s+de\s+venda\s+e\s+compra|com\s+permuta)).{{0,120}}?"
         rf"(?i:do\(a\)|da|do)\s+(?i:Sr\.?\(a\)\.?\s*)?(?P<vendedor>{PERSON_NAME_PATTERN})",
@@ -485,6 +486,95 @@ def _extract_city_date(
             _original_span(index_map, *span),
             _snippet(full_text, *span),
         )
+
+
+def _extract_fallback_context(
+    sections: DocumentSections,
+    index_map: list[int],
+    full_text: str,
+    fields: dict[str, ExtractedField],
+) -> None:
+    """Broader, lower-confidence patterns for fields the structured passes above
+    left empty, e.g. because the buyer's name isn't the very first thing in the
+    preamble, or because the lot/block/development mention doesn't follow the
+    exact "na qualidade de COMPRADOR do Lote ..." wording."""
+    preambulo = sections.get("preambulo")
+
+    if not fields["COMPRADOR"].value and not preambulo.is_empty:
+        match = re.search(
+            rf"(?i:permituta|permuta|permutante|comprador(?:a)?|adquirente)\s+"
+            rf"(?:do\(a\)\s+|da\s+|do\s+)?(?P<comprador>{PERSON_NAME_PATTERN})",
+            preambulo.text,
+        )
+        if match:
+            span = _global_span(preambulo, match.start("comprador"), match.end("comprador"))
+            _set_field(
+                fields,
+                "COMPRADOR",
+                match.group("comprador"),
+                0.80,
+                "fallback",
+                "gatilho alternativo de comprador/permuta",
+                preambulo.name,
+                _original_span(index_map, *span),
+                _snippet(full_text, *span),
+            )
+
+    if not fields["LOTE"].value:
+        match = re.search(r"(?i:\bLote\s+)(?P<lote>[A-Z0-9][A-Z0-9./\-]*)", full_text)
+        if match:
+            span = (match.start("lote"), match.end("lote"))
+            _set_field(
+                fields, "LOTE", match.group("lote"), 0.75, "fallback",
+                "Lote citado no documento", "documento",
+                _original_span(index_map, *span), _snippet(full_text, *span),
+            )
+
+    if not fields["QUADRA"].value:
+        match = re.search(r"(?i:\bQuadra\s+)(?P<quadra>[A-Z0-9][A-Z0-9./\-]*)", full_text)
+        if match:
+            span = (match.start("quadra"), match.end("quadra"))
+            _set_field(
+                fields, "QUADRA", match.group("quadra"), 0.75, "fallback",
+                "Quadra citada no documento", "documento",
+                _original_span(index_map, *span), _snippet(full_text, *span),
+            )
+
+    if not fields["EMPREENDIMENTO"].value:
+        match = re.search(
+            rf"(?P<empreendimento>(?i:LOTEAMENTO|CONDOM[\u00CDI]NIO|EMPREENDIMENTO|RESIDENCIAL|EDIF[\u00CDI]CIO|ALPHAVILLE)"
+            rf"[{UPPER_RANGE}0-9 .'/\-]{{4,120}})(?=,|\.|\s+adquirido|\s+localizado|\s+situado|$)",
+            full_text,
+        )
+        if match:
+            span = (match.start("empreendimento"), match.end("empreendimento"))
+            _set_field(
+                fields, "EMPREENDIMENTO", match.group("empreendimento"), 0.75, "fallback",
+                "empreendimento citado no documento", "documento",
+                _original_span(index_map, *span), _snippet(full_text, *span),
+            )
+
+    if not fields["DATA"].value:
+        match = re.search(DATE_PATTERN, full_text)
+        if match:
+            span = (match.start(), match.end())
+            _set_field(
+                fields, "DATA", match.group(0), 0.70, "fallback",
+                "data por extenso encontrada no documento", "documento",
+                _original_span(index_map, *span), _snippet(full_text, *span),
+            )
+
+    if not fields["CPF_CNPJ"].value:
+        match = re.search(
+            rf"(?i:CPF|CNPJ)\s*n?[\u00BA\u00B0o.\?]?\s*(?P<cpf>{LOOSE_ID_PATTERN})", full_text,
+        )
+        if match:
+            span = (match.start("cpf"), match.end("cpf"))
+            _set_field(
+                fields, "CPF_CNPJ", match.group("cpf"), 0.80, "fallback",
+                "CPF/CNPJ citado no documento", "documento",
+                _original_span(index_map, *span), _snippet(full_text, *span),
+            )
 
 
 def _cross_validate(
